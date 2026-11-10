@@ -1,0 +1,22 @@
+#!/bin/sh
+# ----------------------------------------------------------------------------
+# Maven Wrapper script for Fairish Chat Backend
+# ----------------------------------------------------------------------------
+PRG="$0"
+while [ -h "$PRG" ]; do
+  ls=`ls -ld "$PRG"`
+  link=`expr "$ls" : '.*-> \(.*\)$'`
+  if expr "$link" : '/.*' > /dev/null; then
+    PRG="$link"
+  else
+    PRG=`dirname "$PRG"`/"$link"
+  fi
+done
+
+DIR=`dirname "$PRG"`
+if [ -d "$DIR/apache-maven-3.9.6" ]; then
+  exec "$DIR/apache-maven-3.9.6/bin/mvn" "$@"
+else
+  exec mvn "$@"
+fi
+

@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-main: #0B0D14;
+    --bg-sidebar: #111522;
+    --bg-panel: #171C2B;
+    --border-color: #262D40;
+    --violet-primary: #8B5CF6;
+    --violet-hover: #7C3AED;
+    --violet-lavender: #A78BFA;
+    --text-primary: #F8FAFC;
+    --text-secondary: #94A3B8;
+  }
+
+  html, body {
+    @apply min-h-screen bg-dark-bg text-content-primary font-sans antialiased;
+    background-color: #0B0D14;
+    color: #F8FAFC;
+    overflow-x: hidden;
+  }
+
+  /* Custom text selection */
+  ::selection {
+    background-color: rgba(139, 92, 246, 0.4);
+    color: #FFFFFF;
+  }
+
+  /* Custom dark scrollbars matching design tokens */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #262D40;
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #8B5CF6;
+  }
+}
+
+@layer utilities {
+  /* Subtle violet glow effects for active / focused elements */
+  .glow-violet {
+    box-shadow: 0 0 20px -3px rgba(139, 92, 246, 0.35);
+  }
+
+  .glow-violet-sm {
+    box-shadow: 0 0 10px -2px rgba(139, 92, 246, 0.25);
+  }
+
+  /* Smooth reduced-motion transitions */
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
