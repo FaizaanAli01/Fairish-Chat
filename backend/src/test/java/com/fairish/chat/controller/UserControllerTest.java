@@ -1,5 +1,6 @@
 package com.fairish.chat.controller;
 
+import com.fairish.chat.dto.PublicUserResponse;
 import com.fairish.chat.dto.UpdateProfileRequest;
 import com.fairish.chat.dto.UserResponse;
 import com.fairish.chat.exception.DuplicateResourceException;
@@ -132,12 +133,11 @@ class UserControllerTest {
 
     @Test
     @WithMockUser(username = "john_doe")
-    @DisplayName("GET /api/users/search - Should return list of matching users")
+    @DisplayName("GET /api/users/search - Should return list of matching users without email")
     void shouldSearchUsers() throws Exception {
-        UserResponse user2 = UserResponse.builder()
+        PublicUserResponse user2 = PublicUserResponse.builder()
                 .id("456")
                 .username("jane_doe")
-                .email("jane@example.com")
                 .build();
 
         when(userService.searchUsers("john_doe", "doe")).thenReturn(List.of(user2));
@@ -147,7 +147,8 @@ class UserControllerTest {
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].username").value("jane_doe"));
+                .andExpect(jsonPath("$[0].username").value("jane_doe"))
+                .andExpect(jsonPath("$[0].email").doesNotExist());
     }
 }
 

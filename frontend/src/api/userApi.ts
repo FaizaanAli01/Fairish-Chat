@@ -1,5 +1,5 @@
 import { axiosClient } from './axiosClient';
-import { UpdateProfilePayload, User } from '../types/user';
+import { PublicUser, UpdateProfilePayload, User } from '../types/user';
 
 export const userApi = {
   getCurrentUser: async (): Promise<User> => {
@@ -12,8 +12,8 @@ export const userApi = {
     return response.data;
   },
 
-  searchUsers: async (query: string): Promise<User[]> => {
-    const response = await axiosClient.get<User[]>('/users/search', {
+  searchUsers: async (query: string): Promise<PublicUser[]> => {
+    const response = await axiosClient.get<PublicUser[]>('/users/search', {
       params: { query },
     });
     return response.data;

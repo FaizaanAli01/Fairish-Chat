@@ -1,5 +1,6 @@
 package com.fairish.chat.service;
 
+import com.fairish.chat.dto.PublicUserResponse;
 import com.fairish.chat.dto.UpdateProfileRequest;
 import com.fairish.chat.dto.UserResponse;
 import com.fairish.chat.exception.DuplicateResourceException;
@@ -78,7 +79,7 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
-    public List<UserResponse> searchUsers(String currentUsername, String query) {
+    public List<PublicUserResponse> searchUsers(String currentUsername, String query) {
         if (!StringUtils.hasText(query)) {
             return Collections.emptyList();
         }
@@ -88,7 +89,7 @@ public class UserService {
 
         return matchedUsers.stream()
                 .filter(u -> !u.getUsername().equalsIgnoreCase(currentUsername))
-                .map(UserResponse::fromUser)
+                .map(PublicUserResponse::fromUser)
                 .collect(Collectors.toList());
     }
 }

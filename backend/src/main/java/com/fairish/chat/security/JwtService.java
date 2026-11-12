@@ -52,8 +52,9 @@ public class JwtService {
     public String generateToken(UserDetails userDetails) {
         Map<String, Object> claims = new HashMap<>();
         if (userDetails instanceof UserPrincipal principal) {
+            // Only a stable identifier is embedded. Email is intentionally omitted
+            // so it is never exposed in a token payload.
             claims.put("id", principal.getId());
-            claims.put("email", principal.getEmail());
         }
         return generateToken(claims, userDetails.getUsername());
     }

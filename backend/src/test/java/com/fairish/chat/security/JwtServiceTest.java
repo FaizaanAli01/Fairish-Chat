@@ -1,5 +1,6 @@
 package com.fairish.chat.security;
 
+import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -72,6 +73,24 @@ class JwtServiceTest {
         assertFalse(token.isEmpty());
         assertEquals("testuser", jwtService.extractUsername(token));
         assertTrue(jwtService.validateToken(token, userDetails));
+    }
+
+    @Test
+    @DisplayName("Should not embed email in JWT claims but keep the user id")
+    void shouldNotEmbedEmailInToken() {
+        com.fairish.chat.model.User user = com.fairish.chat.model.User.builder()
+                .id("user-id-1")
+                .username("testuser")
+                .email("test@example.com")
+                .passwordHash("hashed")
+                .build();
+
+        String token = jwtService.generateToken(UserPrincipal.create(user));
+        Claims claims = jwtService.extractAllClaims(token);
+
+        assertFalse(claims.containsKey("email"));
+        assertEquals("user-id-1", claims.get("id"));
+        assertEquals("testuser", claims.getSubject());
     }
 
     @Test

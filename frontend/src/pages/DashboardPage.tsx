@@ -7,7 +7,7 @@ import { messageApi } from '../api/messageApi';
 import { websocketService } from '../api/websocketService';
 import { Conversation } from '../types/conversation';
 import { Message } from '../types/message';
-import { User } from '../types/user';
+import { PublicUser } from '../types/user';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { ErrorMessage } from '../components/ErrorMessage';
 import {
@@ -180,7 +180,7 @@ export const DashboardPage: React.FC = () => {
   };
 
   // Start or open conversation from User Search in Sidebar
-  const handleStartConversationWithUser = async (targetUser: User) => {
+  const handleStartConversationWithUser = async (targetUser: PublicUser) => {
     setError(null);
     try {
       const conversation = await conversationApi.createOrGetConversation(targetUser.id);
@@ -376,7 +376,7 @@ export const DashboardPage: React.FC = () => {
                       </span>
                     </h3>
                     <p className="text-xs text-content-secondary truncate mt-0.5">
-                      {otherUser?.bio || otherUser?.email || 'Direct Conversation'}
+                      {otherUser?.bio || 'Direct Conversation'}
                     </p>
                   </div>
                 </div>

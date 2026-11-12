@@ -1,7 +1,7 @@
 package com.fairish.chat.service;
 
 import com.fairish.chat.dto.ConversationResponse;
-import com.fairish.chat.dto.UserResponse;
+import com.fairish.chat.dto.PublicUserResponse;
 import com.fairish.chat.exception.ResourceNotFoundException;
 import com.fairish.chat.model.Conversation;
 import com.fairish.chat.model.User;
@@ -136,7 +136,7 @@ public class ConversationService {
     }
 
     private ConversationResponse mapToResponse(Conversation conversation, String currentUserId, User otherUser) {
-        UserResponse otherUserResponse = otherUser != null ? UserResponse.fromUser(otherUser) : null;
+        PublicUserResponse otherUserResponse = otherUser != null ? PublicUserResponse.fromUser(otherUser) : null;
 
         return ConversationResponse.builder()
                 .id(conversation.getId())

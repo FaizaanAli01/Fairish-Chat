@@ -8,7 +8,7 @@ public class ConversationResponse {
 
     private String id;
     private List<String> participantIds = new ArrayList<>();
-    private UserResponse otherUser;
+    private PublicUserResponse otherUser;
     private String lastMessageText;
     private String lastMessageSenderId;
     private Instant lastMessageAt;
@@ -18,7 +18,7 @@ public class ConversationResponse {
     public ConversationResponse() {
     }
 
-    public ConversationResponse(String id, List<String> participantIds, UserResponse otherUser,
+    public ConversationResponse(String id, List<String> participantIds, PublicUserResponse otherUser,
                                 String lastMessageText, String lastMessageSenderId, Instant lastMessageAt,
                                 Instant createdAt, Instant updatedAt) {
         this.id = id;
@@ -53,11 +53,11 @@ public class ConversationResponse {
         this.participantIds = participantIds;
     }
 
-    public UserResponse getOtherUser() {
+    public PublicUserResponse getOtherUser() {
         return otherUser;
     }
 
-    public void setOtherUser(UserResponse otherUser) {
+    public void setOtherUser(PublicUserResponse otherUser) {
         this.otherUser = otherUser;
     }
 
@@ -104,7 +104,7 @@ public class ConversationResponse {
     public static class ConversationResponseBuilder {
         private String id;
         private List<String> participantIds = new ArrayList<>();
-        private UserResponse otherUser;
+        private PublicUserResponse otherUser;
         private String lastMessageText;
         private String lastMessageSenderId;
         private Instant lastMessageAt;
@@ -121,7 +121,7 @@ public class ConversationResponse {
             return this;
         }
 
-        public ConversationResponseBuilder otherUser(UserResponse otherUser) {
+        public ConversationResponseBuilder otherUser(PublicUserResponse otherUser) {
             this.otherUser = otherUser;
             return this;
         }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, MessageSquare, User as UserIcon, Users, RefreshCw, Sparkles, UserPlus } from 'lucide-react';
 import { userApi } from '../api/userApi';
-import { User } from '../types/user';
+import { PublicUser } from '../types/user';
 import { Conversation } from '../types/conversation';
 import { LoadingSpinner } from './LoadingSpinner';
 
@@ -9,7 +9,7 @@ interface SidebarProps {
   conversations: Conversation[];
   selectedConversationId?: string | null;
   onSelectConversation: (conversation: Conversation) => void;
-  onStartConversationWithUser: (user: User) => void;
+  onStartConversationWithUser: (user: PublicUser) => void;
   isLoadingConversations: boolean;
   onRefreshConversations: () => void;
 }
@@ -24,7 +24,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'conversations' | 'users'>('conversations');
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<User[]>([]);
+  const [searchResults, setSearchResults] = useState<PublicUser[]>([]);
   const [isSearching, setIsSearching] = useState(false);
 
   // Search users debounce
@@ -176,7 +176,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             {u.username}
                           </span>
                           <p className="text-[11px] text-content-secondary truncate mt-0.5">
-                            {u.bio || u.email}
+                            {u.bio || 'No bio yet'}
                           </p>
                         </div>
                         <span className="text-xs font-semibold text-violet-lavender bg-violet-primary/10 border border-violet-primary/20 px-2.5 py-1 rounded-lg opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">

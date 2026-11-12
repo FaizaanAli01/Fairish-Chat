@@ -1,5 +1,6 @@
 package com.fairish.chat.service;
 
+import com.fairish.chat.dto.PublicUserResponse;
 import com.fairish.chat.dto.UpdateProfileRequest;
 import com.fairish.chat.dto.UserResponse;
 import com.fairish.chat.exception.DuplicateResourceException;
@@ -117,7 +118,7 @@ class UserServiceTest {
 
         when(userRepository.searchByUsername(anyString())).thenReturn(List.of(mockUser, otherUser));
 
-        List<UserResponse> results = userService.searchUsers("john_doe", "doe");
+        List<PublicUserResponse> results = userService.searchUsers("john_doe", "doe");
 
         assertEquals(1, results.size());
         assertEquals("jane_doe", results.get(0).getUsername());

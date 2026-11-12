@@ -1,5 +1,6 @@
 package com.fairish.chat.controller;
 
+import com.fairish.chat.dto.PublicUserResponse;
 import com.fairish.chat.dto.UpdateProfileRequest;
 import com.fairish.chat.dto.UserResponse;
 import com.fairish.chat.service.UserService;
@@ -36,10 +37,10 @@ public class UserController {
     }
 
     @GetMapping("/search")
-    public ResponseEntity<List<UserResponse>> searchUsers(
+    public ResponseEntity<List<PublicUserResponse>> searchUsers(
             @AuthenticationPrincipal UserDetails userDetails,
             @RequestParam(name = "query", defaultValue = "") String query) {
-        List<UserResponse> users = userService.searchUsers(userDetails.getUsername(), query);
+        List<PublicUserResponse> users = userService.searchUsers(userDetails.getUsername(), query);
         return ResponseEntity.ok(users);
     }
 }

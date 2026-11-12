@@ -2,7 +2,7 @@ package com.fairish.chat.controller;
 
 import com.fairish.chat.dto.ConversationResponse;
 import com.fairish.chat.dto.CreateConversationRequest;
-import com.fairish.chat.dto.UserResponse;
+import com.fairish.chat.dto.PublicUserResponse;
 import com.fairish.chat.model.User;
 import com.fairish.chat.repository.UserRepository;
 import com.fairish.chat.security.CustomUserDetailsService;
@@ -79,7 +79,7 @@ class ConversationControllerTest {
         conversationResponse = ConversationResponse.builder()
                 .id("conv-123")
                 .participantIds(List.of("current-user-id", "other-user-id"))
-                .otherUser(UserResponse.fromUser(otherUser))
+                .otherUser(PublicUserResponse.fromUser(otherUser))
                 .createdAt(Instant.now())
                 .updatedAt(Instant.now())
                 .build();
@@ -100,7 +100,8 @@ class ConversationControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value("conv-123"))
-                .andExpect(jsonPath("$.otherUser.username").value("bob"));
+                .andExpect(jsonPath("$.otherUser.username").value("bob"))
+                .andExpect(jsonPath("$.otherUser.email").doesNotExist());
     }
 
     @Test
