@@ -12,10 +12,13 @@ spring:
 
 app:
   jwt:
-    # Development secret only. IN PRODUCTION: override with JWT_SECRET environment variable (minimum 256 bits).
-    secret: ${JWT_SECRET:FAIRISH_CHAT_DEV_ONLY_INSECURE_SECRET_CHANGE_IN_PRODUCTION_KEY_1234567890_ABCDEF}
+    # Required. Must be supplied via the JWT_SECRET environment variable
+    # (minimum 32 bytes / 256 bits). The application refuses to start otherwise.
+    secret: ${JWT_SECRET:}
     expiration-ms: ${JWT_EXPIRATION:86400000}
   cors:
+    # Development defaults only. Production must set CORS_ALLOWED_ORIGINS to the
+    # exact frontend origin(s); see application-prod.yml.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,http://localhost:4173,http://127.0.0.1:5173}
 
 logging:

@@ -5,6 +5,9 @@ target/
 .env
 .env.*
 *.env
+
+# Keep the non-secret environment template tracked
+!.env.example
 .idea/
 .vscode/
 *.iml

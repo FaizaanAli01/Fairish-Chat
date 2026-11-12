@@ -105,14 +105,20 @@ fairish-chat/
 | `PORT` | Backend server port | `8080` |
 | `MONGODB_URI` | MongoDB connection string | `mongodb://localhost:27017/fairish_chat` |
 | `MONGODB_DATABASE` | MongoDB database name | `fairish_chat` |
-| `JWT_SECRET` | 256-bit+ HMAC Secret Key | `DEV_ONLY_KEY_CHANGE_IN_PRODUCTION` |
+| `JWT_SECRET` | 256-bit+ HMAC Secret Key | **Required — no default** |
 | `JWT_EXPIRATION` | Token validity in milliseconds | `86400000` (24 hours) |
-| `CORS_ALLOWED_ORIGINS` | Comma-separated allowed origins | `http://localhost:5173,http://localhost:3000` |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated exact origins | Dev localhost defaults; **required in `prod`** |
+| `SPRING_PROFILES_ACTIVE` | Spring profile | `prod` in production |
+
+The backend refuses to start when `JWT_SECRET` is missing or shorter than 32 bytes. The
+`prod` profile also requires an explicit `CORS_ALLOWED_ORIGINS` and enables secure logging
+and error responses.
 
 ### Frontend (`frontend/.env`)
 | Variable | Description | Default |
 |---|---|---|
-| `VITE_API_BASE_URL` | Backend REST API endpoint base URL | `http://localhost:8080/api` |
+| `VITE_API_BASE_URL` | Backend REST API base URL (required at build time) | None |
+| `VITE_WS_URL` | WebSocket base URL (optional; derived from the API URL) | `wss://<api-host>/ws` |
 
 ---
 

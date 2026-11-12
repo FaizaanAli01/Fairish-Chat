@@ -3,12 +3,14 @@ package com.fairish.chat.security;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Collections;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
 class JwtServiceTest {
@@ -18,8 +20,46 @@ class JwtServiceTest {
     @BeforeEach
     void setUp() {
         jwtService = new JwtService();
-        ReflectionTestUtils.setField(jwtService, "jwtSecret", "404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970");
+        ReflectionTestUtils.setField(jwtService, "jwtSecret",
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
         ReflectionTestUtils.setField(jwtService, "jwtExpirationMs", 3600000L); // 1 hour
+    }
+
+    @Test
+    @DisplayName("Should reject a missing JWT secret")
+    void shouldRejectMissingSecret() {
+        ReflectionTestUtils.setField(jwtService, "jwtSecret", "   ");
+
+        assertThrows(IllegalStateException.class, jwtService::validateConfiguration);
+    }
+
+    @Test
+    @DisplayName("Should reject a JWT secret shorter than 32 bytes")
+    void shouldRejectShortSecret() {
+        ReflectionTestUtils.setField(jwtService, "jwtSecret", "too-short");
+
+        assertThrows(IllegalStateException.class, jwtService::validateConfiguration);
+    }
+
+    @Test
+    @DisplayName("Should accept a JWT secret of at least 32 bytes")
+    void shouldAcceptStrongSecret() {
+        ReflectionTestUtils.setField(jwtService, "jwtSecret", "0123456789abcdef0123456789abcdef");
+
+        assertDoesNotThrow(jwtService::validateConfiguration);
+    }
+
+    @Test
+    @DisplayName("Should fail Spring context startup when the JWT secret is missing")
+    void shouldFailContextStartupWhenSecretMissing() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(JwtService.class)
+                .withPropertyValues("app.jwt.secret=")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining("JWT_SECRET is not configured");
+                });
     }
 
     @Test

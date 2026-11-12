@@ -28,6 +28,10 @@ yarn-error.log*
 backend/.env
 frontend/.env
 
+# Keep the non-secret environment templates tracked
+!.env.example
+!**/.env.example
+
 # IDE & Editor artifacts
 .idea/
 .vscode/

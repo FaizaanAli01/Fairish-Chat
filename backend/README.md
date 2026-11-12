@@ -24,9 +24,17 @@ Copy `.env.example` to `.env` or configure system environment variables:
 | `PORT` | HTTP server port | `8080` |
 | `MONGODB_URI` | MongoDB connection URI | `mongodb://localhost:27017/fairish_chat` |
 | `MONGODB_DATABASE` | MongoDB database name | `fairish_chat` |
-| `JWT_SECRET` | Secret key for HS256 HMAC (>= 256-bit) | Default provided for dev |
+| `JWT_SECRET` | Secret key for HS256 HMAC (>= 32 bytes / 256 bits) | **Required — no default** |
 | `JWT_EXPIRATION` | JWT token validity in ms | `86400000` (24h) |
-| `CORS_ALLOWED_ORIGINS` | Comma-separated allowed frontend origins | `http://localhost:5173,http://localhost:3000` |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated exact frontend origins | Dev localhost defaults; **required in `prod`** |
+
+The application fails fast at startup when `JWT_SECRET` is missing or shorter than 32 bytes.
+Generate one per environment with `openssl rand -base64 48`.
+
+## Production Profile
+Activate the `prod` profile with `SPRING_PROFILES_ACTIVE=prod`. It enables INFO logging,
+secure error responses (no exception details), reverse-proxy header handling, and requires
+`CORS_ALLOWED_ORIGINS` to be set explicitly — no localhost defaults are applied.
 
 ## Build & Test
 ```bash

@@ -1,23 +1,13 @@
 import { Client, StompSubscription, IMessage } from '@stomp/stompjs';
+import { WS_URL } from '../config/env';
 import { Message } from '../types/message';
 
 /**
- * Calculates the appropriate WebSocket endpoint URL based on current environment
- * and appends the JWT token for initial HTTP handshake authentication.
+ * Returns the configured WebSocket endpoint URL and appends the JWT token for
+ * initial HTTP handshake authentication.
  */
 export const getWebSocketUrl = (token?: string | null): string => {
-  const envWsUrl = import.meta.env.VITE_WS_URL;
-  let baseWsUrl = '';
-
-  if (envWsUrl) {
-    baseWsUrl = envWsUrl;
-  } else {
-    const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
-    const wsProtocol = apiBase.startsWith('https') ? 'wss://' : 'ws://';
-    const hostAndPath = apiBase.replace(/^https?:\/\//, '');
-    const cleanHostAndPath = hostAndPath.replace(/\/api\/?$/, '');
-    baseWsUrl = `${wsProtocol}${cleanHostAndPath}/ws`;
-  }
+  const baseWsUrl = WS_URL;
 
   if (token) {
     const separator = baseWsUrl.includes('?') ? '&' : '?';

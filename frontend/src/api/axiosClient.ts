@@ -1,9 +1,8 @@
 import axios from 'axios';
-
-const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
+import { API_BASE_URL } from '../config/env';
 
 export const axiosClient = axios.create({
-  baseURL,
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
