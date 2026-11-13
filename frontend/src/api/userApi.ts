@@ -18,5 +18,39 @@ export const userApi = {
     });
     return response.data;
   },
-};
 
+  /**
+   * Uploads an avatar through the authenticated backend. The server validates
+   * and normalizes the image; the response is the updated self profile.
+   */
+  uploadAvatar: async (file: File, onProgress?: (percent: number) => void): Promise<User> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await axiosClient.post<User>('/users/me/avatar', formData, {
+      onUploadProgress: (event) => {
+        if (onProgress && event.total) {
+          onProgress(Math.min(100, Math.round((event.loaded * 100) / event.total)));
+        }
+      },
+    });
+    return response.data;
+  },
+
+  deleteAvatar: async (): Promise<User> => {
+    const response = await axiosClient.delete<User>('/users/me/avatar');
+    return response.data;
+  },
+
+  /**
+   * Fetches avatar bytes through the authenticated proxy. Never use a public
+   * object URL or a presigned URL here.
+   */
+  getAvatarBlob: async (userId: string): Promise<Blob> => {
+    const response = await axiosClient.get<Blob>(
+      `/users/${encodeURIComponent(userId)}/avatar`,
+      { responseType: 'blob' }
+    );
+    return response.data;
+  },
+};

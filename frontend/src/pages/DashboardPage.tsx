@@ -10,6 +10,7 @@ import { Message } from '../types/message';
 import { PublicUser } from '../types/user';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { ErrorMessage } from '../components/ErrorMessage';
+import { Avatar } from '../components/Avatar';
 import {
   MessageSquare,
   Send,
@@ -315,11 +316,6 @@ export const DashboardPage: React.FC = () => {
     return date.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
-  const getInitials = (name?: string) => {
-    if (!name) return 'U';
-    return name.slice(0, 2).toUpperCase();
-  };
-
   const otherUser = selectedConversation?.otherUser;
 
   return (
@@ -359,13 +355,13 @@ export const DashboardPage: React.FC = () => {
                   </button>
 
                   {/* Avatar / Initials */}
-                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-dark-panel border border-dark-border flex items-center justify-center overflow-hidden flex-shrink-0 shadow-sm text-xs font-bold text-violet-lavender">
-                    {otherUser?.profileImage ? (
-                      <img src={otherUser.profileImage} alt={otherUser.username} className="w-full h-full object-cover" />
-                    ) : (
-                      <span>{getInitials(otherUser?.username)}</span>
-                    )}
-                  </div>
+                  <Avatar
+                    userId={otherUser?.id}
+                    username={otherUser?.username}
+                    hasAvatar={otherUser?.hasAvatar}
+                    avatarUpdatedAt={otherUser?.avatarUpdatedAt}
+                    className="w-9 h-9 sm:w-10 sm:h-10 text-xs font-bold shadow-sm"
+                  />
 
                   <div className="min-w-0 flex-1">
                     <h3 className="text-sm font-bold text-content-primary truncate flex items-center space-x-1.5 sm:space-x-2">

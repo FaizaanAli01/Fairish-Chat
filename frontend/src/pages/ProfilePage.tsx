@@ -1,10 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Navbar } from '../components/Navbar';
 import { useAuth } from '../context/AuthContext';
-import { User, Mail, Calendar, Save, CheckCircle, ArrowLeft, Image as ImageIcon } from 'lucide-react';
+import {
+  User,
+  Mail,
+  Calendar,
+  Save,
+  CheckCircle,
+  ArrowLeft,
+  Image as ImageIcon,
+  Upload,
+  Trash2,
+} from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { LoadingSpinner } from '../components/LoadingSpinner';
+import { Avatar } from '../components/Avatar';
+import { userApi } from '../api/userApi';
+
+const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+const ALLOWED_AVATAR_TYPES = ['image/jpeg', 'image/png'];
 
 export const ProfilePage: React.FC = () => {
   const { user, updateProfile, refreshUser } = useAuth();
@@ -16,6 +31,22 @@ export const ProfilePage: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [isRemovingAvatar, setIsRemovingAvatar] = useState(false);
+  const [avatarUploadProgress, setAvatarUploadProgress] = useState(0);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [avatarSuccess, setAvatarSuccess] = useState<string | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    return () => {
+      if (avatarPreviewUrl) {
+        URL.revokeObjectURL(avatarPreviewUrl);
+      }
+    };
+  }, [avatarPreviewUrl]);
 
   useEffect(() => {
     if (user) {
@@ -58,6 +89,63 @@ export const ProfilePage: React.FC = () => {
     }
   };
 
+  const handleAvatarSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    // Reset so selecting the same file again still fires onChange.
+    event.target.value = '';
+    if (!file) return;
+
+    setAvatarError(null);
+    setAvatarSuccess(null);
+
+    if (file.type && !ALLOWED_AVATAR_TYPES.includes(file.type)) {
+      setAvatarError('Please choose a JPEG or PNG image.');
+      return;
+    }
+    if (file.size > MAX_AVATAR_BYTES) {
+      setAvatarError('Avatar must be 5 MB or smaller.');
+      return;
+    }
+
+    setAvatarPreviewUrl(URL.createObjectURL(file));
+    setIsUploadingAvatar(true);
+    setAvatarUploadProgress(0);
+    try {
+      await userApi.uploadAvatar(file, setAvatarUploadProgress);
+      await refreshUser();
+      // The backend clears the legacy URL when an avatar is uploaded.
+      setProfileImage('');
+      setAvatarPreviewUrl(null);
+      setAvatarSuccess('Avatar updated successfully!');
+    } catch (err: any) {
+      setAvatarPreviewUrl(null);
+      setAvatarError(
+        err.response?.data?.message || 'Failed to upload avatar. Please try again.'
+      );
+    } finally {
+      setIsUploadingAvatar(false);
+      setAvatarUploadProgress(0);
+    }
+  };
+
+  const handleRemoveAvatar = async () => {
+    setAvatarError(null);
+    setAvatarSuccess(null);
+    setAvatarPreviewUrl(null);
+    setIsRemovingAvatar(true);
+    try {
+      await userApi.deleteAvatar();
+      await refreshUser();
+      setAvatarSuccess('Avatar removed.');
+    } catch (err: any) {
+      setAvatarError(
+        err.response?.data?.message || 'Failed to remove avatar. Please try again.'
+      );
+    } finally {
+      setIsRemovingAvatar(false);
+    }
+  };
+
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return 'N/A';
     return new Date(dateStr).toLocaleDateString('en-US', {
@@ -67,10 +155,7 @@ export const ProfilePage: React.FC = () => {
     });
   };
 
-  const getInitials = (name?: string) => {
-    if (!name) return 'U';
-    return name.slice(0, 2).toUpperCase();
-  };
+  const isAvatarBusy = isUploadingAvatar || isRemovingAvatar;
 
   return (
     <div className="min-h-screen bg-dark-bg flex flex-col">
@@ -91,17 +176,22 @@ export const ProfilePage: React.FC = () => {
         {/* Profile Card */}
         <div className="bg-dark-sidebar border border-dark-border rounded-2xl p-5 sm:p-8 shadow-card space-y-7">
           {/* Header */}
-          <div className="flex flex-col sm:flex-row items-center sm:items-start space-y-4 sm:space-y-0 sm:space-x-5 pb-6 border-b border-dark-border">
-            <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-dark-panel border border-violet-primary/30 flex items-center justify-center overflow-hidden flex-shrink-0 shadow-violet-sm text-lg font-bold text-violet-lavender">
-              {profileImage ? (
-                <img src={profileImage} alt={username} className="w-full h-full object-cover" />
-              ) : (
-                <span>{getInitials(username)}</span>
-              )}
-            </div>
+          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-5 pb-6 border-b border-dark-border">
+            <Avatar
+              userId={user?.id}
+              username={user?.username}
+              hasAvatar={user?.hasAvatar}
+              avatarUpdatedAt={user?.avatarUpdatedAt}
+              legacyImageUrl={profileImage}
+              previewSrc={avatarPreviewUrl}
+              shape="rounded"
+              className="w-20 h-20 sm:w-24 sm:h-24 text-lg shadow-violet-sm"
+            />
 
             <div className="text-center sm:text-left space-y-1.5 flex-1 min-w-0">
-              <h1 className="text-xl sm:text-2xl font-bold text-content-primary truncate">{user?.username}</h1>
+              <h1 className="text-xl sm:text-2xl font-bold text-content-primary truncate">
+                {user?.username}
+              </h1>
               <p className="text-xs sm:text-sm text-content-secondary flex items-center justify-center sm:justify-start space-x-2 truncate">
                 <Mail className="w-4 h-4 text-content-muted flex-shrink-0" />
                 <span className="truncate">{user?.email}</span>
@@ -110,6 +200,85 @@ export const ProfilePage: React.FC = () => {
                 <Calendar className="w-4 h-4 text-content-muted flex-shrink-0" />
                 <span>Joined {formatDate(user?.createdAt)}</span>
               </p>
+
+              {/* Avatar controls */}
+              <div className="pt-2 flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png"
+                  className="hidden"
+                  onChange={handleAvatarSelected}
+                  aria-label="Choose an avatar image"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isAvatarBusy}
+                  className="px-3.5 py-2 bg-violet-primary hover:bg-violet-hover text-white font-semibold text-xs rounded-xl shadow-violet-sm transition-all duration-150 flex items-center space-x-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isUploadingAvatar ? (
+                    <LoadingSpinner size="sm" text="Uploading..." />
+                  ) : (
+                    <>
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Upload avatar</span>
+                    </>
+                  )}
+                </button>
+
+                {user?.hasAvatar && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveAvatar}
+                    disabled={isAvatarBusy}
+                    className="px-3.5 py-2 bg-dark-panel hover:bg-dark-hover text-content-secondary hover:text-status-error border border-dark-border hover:border-red-500/30 font-semibold text-xs rounded-xl transition-all duration-150 flex items-center space-x-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isRemovingAvatar ? (
+                      <LoadingSpinner size="sm" text="Removing..." />
+                    ) : (
+                      <>
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Remove avatar</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+
+              <p className="text-[11px] text-content-muted pt-1">
+                JPEG or PNG, up to 5 MB. Images are resized to 512×512.
+              </p>
+
+              {isUploadingAvatar && (
+                <div className="w-full max-w-xs sm:max-w-sm pt-1">
+                  <div
+                    className="h-1.5 w-full bg-dark-panel rounded-full overflow-hidden border border-dark-border"
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={avatarUploadProgress}
+                  >
+                    <div
+                      className="h-full bg-violet-primary transition-all"
+                      style={{ width: `${avatarUploadProgress}%` }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-content-muted mt-1">
+                    {avatarUploadProgress}% uploaded
+                  </p>
+                </div>
+              )}
+
+              {avatarError && (
+                <p className="text-xs text-status-error pt-1" role="alert">
+                  {avatarError}
+                </p>
+              )}
+
+              {avatarSuccess && (
+                <p className="text-xs text-status-success pt-1">{avatarSuccess}</p>
+              )}
             </div>
           </div>
 
@@ -145,7 +314,7 @@ export const ProfilePage: React.FC = () => {
 
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-content-secondary mb-2">
-                Profile Image URL
+                Legacy Image URL (Optional)
               </label>
               <div className="relative">
                 <ImageIcon className="w-4 h-4 text-content-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -157,7 +326,9 @@ export const ProfilePage: React.FC = () => {
                   className="w-full pl-10 pr-4 py-2.5 bg-dark-panel border border-dark-border rounded-xl text-xs sm:text-sm text-content-primary placeholder-content-muted focus:outline-none focus:border-violet-primary focus:ring-1 focus:ring-violet-primary transition-all"
                 />
               </div>
-              <p className="text-[11px] text-content-muted mt-1">Direct link to an image file (PNG, JPG, WebP).</p>
+              <p className="text-[11px] text-content-muted mt-1">
+                Only visible to you. Uploading an avatar replaces this URL.
+              </p>
             </div>
 
             <div>

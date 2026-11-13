@@ -4,6 +4,7 @@ import { userApi } from '../api/userApi';
 import { PublicUser } from '../types/user';
 import { Conversation } from '../types/conversation';
 import { LoadingSpinner } from './LoadingSpinner';
+import { Avatar } from './Avatar';
 
 interface SidebarProps {
   conversations: Conversation[];
@@ -62,11 +63,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
     return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-  };
-
-  const getInitials = (name?: string) => {
-    if (!name) return 'U';
-    return name.slice(0, 2).toUpperCase();
   };
 
   return (
@@ -164,13 +160,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         onClick={() => onStartConversationWithUser(u)}
                         className="w-full flex items-center space-x-3 p-2.5 sm:p-3 rounded-xl text-left bg-dark-panel/60 hover:bg-dark-panel border border-transparent hover:border-dark-border transition-all group min-w-0"
                       >
-                        <div className="w-10 h-10 rounded-full bg-dark-bg border border-dark-border flex items-center justify-center overflow-hidden flex-shrink-0 text-xs font-semibold text-violet-lavender shadow-sm">
-                          {u.profileImage ? (
-                            <img src={u.profileImage} alt={u.username} className="w-full h-full object-cover" />
-                          ) : (
-                            <span>{getInitials(u.username)}</span>
-                          )}
-                        </div>
+                        <Avatar
+                          userId={u.id}
+                          username={u.username}
+                          hasAvatar={u.hasAvatar}
+                          avatarUpdatedAt={u.avatarUpdatedAt}
+                          className="w-10 h-10 text-xs shadow-sm"
+                        />
                         <div className="flex-1 min-w-0">
                           <span className="font-semibold text-xs sm:text-sm text-content-primary truncate block group-hover:text-violet-lavender transition-colors">
                             {u.username}
@@ -231,13 +227,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }`}
                 >
                   {/* User Avatar */}
-                  <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-dark-bg border border-dark-border flex items-center justify-center overflow-hidden flex-shrink-0 relative shadow-sm text-xs font-bold text-violet-lavender">
-                    {otherUser?.profileImage ? (
-                      <img src={otherUser.profileImage} alt={otherUser.username} className="w-full h-full object-cover" />
-                    ) : (
-                      <span>{getInitials(otherUser?.username)}</span>
-                    )}
-                  </div>
+                  <Avatar
+                    userId={otherUser?.id}
+                    username={otherUser?.username}
+                    hasAvatar={otherUser?.hasAvatar}
+                    avatarUpdatedAt={otherUser?.avatarUpdatedAt}
+                    className="w-10 h-10 sm:w-11 sm:h-11 text-xs font-bold shadow-sm"
+                  />
 
                   {/* Conversation Preview */}
                   <div className="flex-1 min-w-0">

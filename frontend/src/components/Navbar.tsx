@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { MessageSquare, LogOut, X, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { Avatar } from './Avatar';
 
 export const Navbar: React.FC = () => {
   const { user, logout } = useAuth();
@@ -18,12 +19,6 @@ export const Navbar: React.FC = () => {
       setIsLoggingOut(false);
       setShowLogoutModal(false);
     }
-  };
-
-  // Helper for user initials fallback
-  const getInitials = (name?: string) => {
-    if (!name) return 'U';
-    return name.slice(0, 2).toUpperCase();
   };
 
   return (
@@ -50,13 +45,14 @@ export const Navbar: React.FC = () => {
             to="/app/profile"
             className="flex items-center space-x-2.5 px-2.5 sm:px-3 py-1.5 rounded-xl hover:bg-dark-hover border border-transparent hover:border-dark-border transition-all text-content-secondary hover:text-content-primary group"
           >
-            <div className="w-8 h-8 rounded-full bg-dark-panel border border-dark-border flex items-center justify-center overflow-hidden flex-shrink-0 text-xs font-semibold text-violet-lavender">
-              {user?.profileImage ? (
-                <img src={user.profileImage} alt={user.username} className="w-full h-full object-cover" />
-              ) : (
-                <span>{getInitials(user?.username)}</span>
-              )}
-            </div>
+            <Avatar
+              userId={user?.id}
+              username={user?.username}
+              hasAvatar={user?.hasAvatar}
+              avatarUpdatedAt={user?.avatarUpdatedAt}
+              legacyImageUrl={user?.profileImage}
+              className="w-8 h-8 text-xs"
+            />
             <div className="hidden md:block text-left min-w-0 max-w-[120px]">
               <p className="text-xs font-semibold leading-none text-content-primary truncate">{user?.username}</p>
               <p className="text-[11px] text-content-secondary mt-1 leading-none truncate">{user?.email}</p>
