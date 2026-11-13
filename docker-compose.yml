@@ -1,0 +1,54 @@
+# ==============================================================================
+# Local development dependencies for Fairish Chat.
+#
+#   docker compose up -d
+#
+# Starts MongoDB and MinIO. The backend creates the private avatar bucket on
+# first use (AVATAR_STORAGE_CREATE_BUCKET=true), so no manual bucket setup is
+# needed. Production uses MongoDB Atlas and Cloudflare R2 instead.
+#
+# These credentials are for local development only and match backend/.env.example.
+# ==============================================================================
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: fairish-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  minio:
+    # Pinned to the same release used by S3AvatarStorageMinioTest.
+    image: minio/minio:RELEASE.2024-06-13T22-53-53Z
+    container_name: fairish-minio
+    command: server /data --console-address ":9001"
+    environment:
+      # Override with MINIO_ROOT_USER / MINIO_ROOT_PASSWORD if desired, then use
+      # the same values for AVATAR_STORAGE_ACCESS_KEY / AVATAR_STORAGE_SECRET_KEY.
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-fairish-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-fairish-minio-dev-secret}
+    ports:
+      - "9000:9000"   # S3 API (backend endpoint)
+      - "9001:9001"   # Web console (http://localhost:9001)
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  mongodb-data:
+  minio-data:

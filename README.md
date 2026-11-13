@@ -1,239 +1,435 @@
-# Fairish Chat — Full-Stack Messaging Platform (Phase 1 & 2)
+# Fairish Chat
 
-[![Backend Tests](https://img.shields.io/badge/Backend%20Tests-57%20Passed-emerald)](https://github.com)
-[![Java Version](https://img.shields.io/badge/Java-21%20LTS-orange)](https://openjdk.org)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.0-brightgreen)](https://spring.io/projects/spring-boot)
-[![Frontend](https://img.shields.io/badge/React-18%20%7C%20Vite%20%7C%20TypeScript-blue)](https://react.dev)
-[![Database](https://img.shields.io/badge/MongoDB-Atlas%20%2F%20Local-forestgreen)](https://www.mongodb.com)
+Fairish Chat is a full-stack 1-to-1 messaging application built with a Spring Boot
+backend, a React/TypeScript frontend, MongoDB, and real-time STOMP messaging over
+WebSocket. Messaging is restricted to **accepted contacts**, and avatars are stored
+in a **private** S3-compatible bucket and served only through an authenticated proxy.
 
-Fairish Chat is a production-oriented full-stack real-time messaging platform designed with clean architecture, modern engineering standards, and enterprise security practices.
+The project is intentionally conventional: one backend service, one SPA, one database,
+and one storage dependency. There are no service abstractions that exist only to look
+enterprise-shaped.
 
-> [!NOTE]
-> **Phase 1 (Foundation & Auth)** and **Phase 2 (1-to-1 Conversations & Persistent Message History)** are complete and tested. Real-time WebSocket/STOMP delivery, typing indicators, and presence indicators are scheduled for Phase 3.
+## Implemented features
 
----
+- **Authentication**: registration, login, stateless JWT (HS256), BCrypt password hashing.
+- **Profiles**: view/update username and bio; upload/remove a private avatar.
+- **User discovery**: search by exact 24-character Fairish User ID or by username substring.
+- **Contacts**: send, accept, decline, and cancel requests; list incoming/outgoing requests
+  and accepted contacts; remove contacts.
+- **Contact-gated chat**: conversations, message history, message sending, and STOMP
+  subscribe/send are all denied unless the pair has an `ACCEPTED` contact request.
+- **1-to-1 conversations**: deterministic pair keys, duplicate-safe creation, paginated
+  message history (newest first), message length validation (1–2000 characters).
+- **Real-time delivery**: STOMP over native WebSocket (with SockJS fallback) at `/ws`,
+  conversation topics at `/topic/conversations/{id}`.
+- **Private avatars**: server-side validation and normalization, private bucket, no public
+  or presigned URLs, owner-or-accepted-contact authorization.
 
-## 1. Phase 1 Scope & Features
+Not implemented: end-to-end encryption, presence, typing indicators, read receipts, group
+chats, message attachments, push notifications, and rate limiting. See
+[Known limitations](#known-limitations).
 
-- **Project Foundation**: Clean multi-module structure (`backend/` and `frontend/`) with reproducible Maven wrapper and Vite toolchain.
-- **Stateless JWT Authentication**: Secure HMAC-SHA256 tokens passed via `Authorization: Bearer <token>` headers.
-- **Spring Security 6 Integration**: Stateless session management, custom `AuthenticationEntryPoint`, Bean Validation, and protected routes.
-- **BCrypt Password Hashing**: Passwords hashed securely with work factor before database persistence; password hashes are never exposed in API responses.
-- **MongoDB Persistence**: `User` collection with unique indexing on `email` and `username`, audit timestamps (`createdAt`, `updatedAt`).
-- **User Profile Management**: Endpoints and UI for inspecting and editing user profiles (`bio`, `profileImage`, `username`).
-- **User Discovery / Search**: Case-insensitive substring username search endpoint (`/api/users/search?query=...`) for finding other users.
-- **Global Error Handling**: Centralized `@RestControllerAdvice` delivering standardized JSON error responses without exposing server internals or stack traces.
-- **Modern React Frontend**: Fast, responsive, accessible dark-theme UI with React Router, Axios interceptors, and Auth context.
-- **Health Check Endpoint**: Public `/api/health` check for uptime monitoring.
-
----
-
-## 2. Architecture Overview
+## Architecture
 
 ```mermaid
-flowchart TD
-    Client["React + Vite + TypeScript Frontend\n(Port 5173)"]
-    API["Spring Boot 3.2 Backend\n(Port 8080)"]
-    DB[("MongoDB\nDatabase")]
+flowchart LR
+    Browser["React SPA<br/>Vite + TypeScript"]
+    API["Spring Boot 3.2<br/>REST + STOMP"]
+    DB[("MongoDB")]
+    Store[("Private S3-compatible storage<br/>Cloudflare R2 (prod) / MinIO (local)")]
 
-    Client -- "HTTP Requests (Bearer JWT)" --> API
-    API -- "Data Persistence & Queries" --> DB
-
-    subgraph Backend Layered Architecture
-        API --> Controller["Controller Layer\n(REST Endpoints & Validation)"]
-        Controller --> Service["Service Layer\n(Business Logic, BCrypt & JWT)"]
-        Service --> Security["Security Layer\n(JwtFilter, SecurityConfig)"]
-        Service --> Repository["Repository Layer\n(Spring Data MongoDB)"]
-        Repository --> Model["Model Layer\n(User Document)"]
-    end
+    Browser -- "HTTPS · Bearer JWT" --> API
+    Browser <-- "STOMP over WebSocket /ws" --> API
+    API -- "users, contacts, conversations, messages" --> DB
+    API -- "avatar objects (private)" --> Store
 ```
 
----
+Request flow:
 
-## 3. Project Structure
+1. The SPA authenticates via `/api/auth/*` and stores the JWT.
+2. REST calls send `Authorization: Bearer <token>`; the backend resolves the user from the
+   token. User IDs are never trusted from request bodies when the authenticated user is the
+   actor.
+3. The SPA connects to `/ws` with the token and subscribes to a conversation topic only
+   after the backend authorizes the subscription.
+4. Chat authorization is centralized in `ConversationService`; REST and STOMP paths share
+   the same check, so a client cannot bypass the contact rule by switching protocols.
+5. Avatar bytes live in a private bucket. The backend is the only reader and returns the
+   bytes only to the owner or an accepted contact.
+
+### Backend packages
 
 ```
-fairish-chat/
-│
-├── backend/
-│   ├── src/
-│   │   ├── main/
-│   │   │   ├── java/com/fairish/chat/
-│   │   │   │   ├── config/             # CORS and Mongo Auditing config
-│   │   │   │   ├── controller/         # REST Controllers (Auth, User, Health)
-│   │   │   │   ├── dto/                # Request & Response Contracts
-│   │   │   │   ├── exception/          # Custom Exceptions & Global Handler
-│   │   │   │   ├── model/              # MongoDB Documents (User)
-│   │   │   │   ├── repository/         # Spring Data Repositories
-│   │   │   │   ├── security/           # JWT Service, Filter, SecurityConfig
-│   │   │   │   ├── service/            # Business logic (Auth, User)
-│   │   │   │   └── FairishChatApplication.java
-│   │   │   └── resources/
-│   │   │       └── application.yml     # Application configuration
-│   │   └── test/                       # Unit & Integration Tests (29 tests)
-│   ├── mvnw / mvnw.cmd                 # Maven Wrapper scripts
-│   ├── pom.xml                         # Maven dependencies & build configuration
-│   ├── .env.example                    # Environment variable template
-│   └── README.md
-│
-├── frontend/
-│   ├── src/
-│   │   ├── api/                        # Axios instance & API client modules
-│   │   ├── components/                 # Reusable components (Navbar, Sidebar, etc.)
-│   │   ├── context/                    # AuthContext & state provider
-│   │   ├── pages/                      # Login, Register, Dashboard, Profile, 404
-│   │   ├── types/                      # TypeScript definitions
-│   │   ├── App.tsx                     # Route definitions (Protected & Public)
-│   │   └── main.tsx                    # Entry point
-│   ├── package.json
-│   ├── vite.config.ts
-│   ├── tailwind.config.js
-│   ├── .env.example
-│   └── README.md
-│
-├── .gitignore
-└── README.md
+com.fairish.chat
+├── config/      Spring, CORS, WebSocket, dotenv, avatar storage wiring
+├── controller/  REST controllers + STOMP message mappings
+├── dto/         Request/response contracts (public projections omit email)
+├── exception/   Domain exceptions + centralized JSON error handler
+├── model/       MongoDB documents (User, ContactRequest, Conversation, Message)
+├── repository/  Spring Data MongoDB repositories
+├── security/    JWT filter/service, SecurityConfig, STOMP auth interceptor
+├── service/     Business logic and authorization policy
+└── storage/     AvatarStorage abstraction + S3 adapter + disabled fallback
 ```
 
----
+### Frontend structure
 
-## 4. Environment Variables
+```
+frontend/src
+├── api/          axios client, REST clients, STOMP service
+├── components/   Sidebar, ContactsPanel, Avatar, Navbar, etc.
+├── context/      AuthContext (session state)
+├── pages/        Login, Register, Dashboard, Profile, 404
+├── types/        TypeScript contracts (user, contact, conversation, message)
+└── config/       build-time validated environment configuration
+```
 
-### Backend (`backend/.env` or system environment)
-| Variable | Description | Default / Example |
+## Authorization model
+
+### Authentication
+
+- Passwords are hashed with BCrypt and never returned by the API.
+- JWTs are HMAC-SHA256, signed with `JWT_SECRET` (minimum 32 bytes), and validated on every
+  request by `JwtAuthenticationFilter`.
+- The API is stateless: no server-side HTTP session. Logout is a client-side token discard.
+- Public routes: `/api/auth/**`, `/api/health`, `/ws/**` (the STOMP handshake authenticates
+  the `CONNECT` frame). Everything else requires a valid token.
+
+### Contact lifecycle
+
+A pair of users has at most **one** `ContactRequest` document, keyed by an unordered pair key.
+Status values are `PENDING`, `ACCEPTED`, `DECLINED`, and `CANCELLED`.
+
+| Action | Who may perform it | Result |
 |---|---|---|
-| `PORT` | Backend server port | `8080` |
-| `MONGODB_URI` | MongoDB connection string | `mongodb://localhost:27017/fairish_chat` |
-| `MONGODB_DATABASE` | MongoDB database name | `fairish_chat` |
-| `JWT_SECRET` | 256-bit+ HMAC Secret Key | **Required — no default** |
-| `JWT_EXPIRATION` | Token validity in milliseconds | `86400000` (24 hours) |
-| `CORS_ALLOWED_ORIGINS` | Comma-separated exact origins | Dev localhost defaults; **required in `prod`** |
-| `SPRING_PROFILES_ACTIVE` | Spring profile | `prod` in production |
+| Send request | Any authenticated user, not to self | `PENDING`; duplicate request → `409` |
+| Accept | Recipient only | `ACCEPTED`; chat becomes available |
+| Decline | Recipient only | `DECLINED`; request leaves the incoming list |
+| Cancel | Requester only | `CANCELLED`; request leaves the outgoing list |
+| Remove contact | Either accepted contact | Pair document deleted; access revoked |
 
-The backend refuses to start when `JWT_SECRET` is missing or shorter than 32 bytes. The
-`prod` profile also requires an explicit `CORS_ALLOWED_ORIGINS` and enables secure logging
-and error responses.
+`DECLINED` and `CANCELLED` requests can be re-opened by sending a new request; the same
+document returns to `PENDING`. Only `ACCEPTED` grants chat or avatar access.
 
-### Frontend (`frontend/.env`)
-| Variable | Description | Default |
-|---|---|---|
-| `VITE_API_BASE_URL` | Backend REST API base URL (required at build time) | None |
-| `VITE_WS_URL` | WebSocket base URL (optional; derived from the API URL) | `wss://<api-host>/ws` |
+### Chat policy
 
----
+`ConversationService.getConversationAndValidateParticipant(...)` is the single authorization
+primitive. It verifies that:
 
-## 5. Quickstart Guide
+1. the conversation exists,
+2. the authenticated user is a participant, and
+3. the two participants are still accepted contacts.
+
+That method is used by:
+
+- REST conversation lookup, message history, and message sending;
+- STOMP `SUBSCRIBE /topic/conversations/{id}`;
+- STOMP `SEND /app/conversations/{id}/sendMessage` and `/app/chat.sendMessage`.
+
+Conversation creation also requires an accepted contact, and the conversation list only
+returns conversations whose counterpart is an accepted contact.
+
+**Removing a contact revokes access immediately** but does **not** delete conversation or
+message history. If the pair becomes accepted contacts again, the preserved history becomes
+visible again. Direct API calls and WebSocket frames receive `403` / an `AccessDeniedException`
+while the relationship is pending, declined, cancelled, or removed.
+
+### Avatar privacy
+
+- The bucket is private; objects are never public and no presigned/public URL is generated.
+- `GET /api/users/{id}/avatar` requires authentication and allows only:
+  - the owner, or
+  - a user with an `ACCEPTED` contact relationship with the owner.
+- Other users (including conversation participants whose contact was removed) receive `403`.
+- Uploads accept JPEG or PNG only, up to 5 MB, and are center-cropped to 512×512. Images are
+  re-encoded, which strips EXIF/GPS metadata. The storage key is stored privately on the user
+  document and never exposed.
+- Public user payloads expose only `hasAvatar` and `avatarUpdatedAt` metadata.
+
+## Local setup
 
 ### Prerequisites
-- **Java 21+ JDK** installed (`java -version`)
-- **Node.js 18+ & npm** installed (`node -v`, `npm -v`)
-- **MongoDB** running locally on port 27017 or a free **MongoDB Atlas** connection string
 
-### Step 1: Start Backend
+- Java 21+ (the build targets Java 21)
+- Node.js 18+ and npm
+- Docker Desktop (recommended for MongoDB and MinIO) or your own MongoDB instance
+
+### 1. Start local dependencies
+
+From the repository root:
+
+```bash
+docker compose up -d
+```
+
+This starts:
+
+| Service | Address | Purpose |
+|---|---|---|
+| MongoDB | `localhost:27017` | application database |
+| MinIO S3 API | `http://localhost:9000` | avatar storage |
+| MinIO console | `http://localhost:9001` | inspect the private bucket (login with the dev credentials) |
+
+The backend creates the `fairish-avatars` bucket on first use
+(`AVATAR_STORAGE_CREATE_BUCKET=true`). No manual bucket setup is required.
+
+> The compose credentials are **local development only**. If you already have a
+> `backend/.env` pointing at MongoDB Atlas, you can keep it and run only the MinIO service
+> (`docker compose up -d minio`).
+
+### 2. Configure and start the backend
+
 ```bash
 cd backend
+cp .env.example .env      # Windows: copy .env.example .env
+```
 
-# Run with Maven wrapper (Windows PowerShell):
+Set `JWT_SECRET` in `backend/.env` to a random value of at least 32 bytes:
+
+```bash
+openssl rand -base64 48
+```
+
+The template already contains MinIO settings that match `docker-compose.yml`. If your
+existing `.env` predates avatar support, add the `AVATAR_*` block from `.env.example`;
+without it avatar storage defaults to disabled and avatar endpoints return `503`.
+
+Run:
+
+```bash
+# Windows
 .\mvnw.cmd spring-boot:run
 
-# Or on macOS/Linux:
+# macOS / Linux
 ./mvnw spring-boot:run
 ```
-Backend will start on `http://localhost:8080`. Verify with `curl http://localhost:8080/api/health`.
 
-### Step 2: Start Frontend
+The backend listens on `http://localhost:8080`. Verify with:
+
+```bash
+curl http://localhost:8080/api/health
+```
+
+`backend/.env` is loaded automatically by `DotenvEnvironmentPostProcessor`. OS environment
+variables and `-D` system properties take precedence over `.env` values.
+
+### 3. Configure and start the frontend
+
 ```bash
 cd frontend
-
-# Install dependencies
+cp .env.example .env      # Windows: copy .env.example .env
 npm install
-
-# Start Vite dev server
 npm run dev
 ```
-Open `http://localhost:5173` in your browser.
 
----
+Open `http://localhost:5173`.
 
-## 6. API Reference (Phase 1 & Phase 2)
+`VITE_API_BASE_URL` is required before the dev server or build starts. In production builds
+it must be an HTTPS URL and must not point at localhost; the same applies to `VITE_WS_URL`
+when provided.
 
-### Public Endpoints
-| Method | Endpoint | Description | Request Body | Response |
-|---|---|---|---|---|
-| `GET` | `/api/health` | Service health check | None | `{"status": "UP"}` |
-| `POST` | `/api/auth/register` | Register new user | `{ "username": "...", "email": "...", "password": "..." }` | `201 Created` + `AuthResponse` |
-| `POST` | `/api/auth/login` | Login user | `{ "identifier": "...", "password": "..." }` | `200 OK` + `AuthResponse` |
-| `POST` | `/api/auth/logout` | Client logout acknowledgment | None | `200 OK` + message |
+## Environment variables
 
-### Protected User Endpoints (Requires `Authorization: Bearer <token>`)
-| Method | Endpoint | Description | Request Body | Response |
-|---|---|---|---|---|
-| `GET` | `/api/users/me` | Fetch current authenticated user profile | None | `200 OK` + `UserResponse` |
-| `PUT` | `/api/users/me` | Update current user profile | `{ "username"?: "...", "bio"?: "...", "profileImage"?: "..." }` | `200 OK` + `UserResponse` |
-| `GET` | `/api/users/search?query={q}` | Search users by username query | None | `200 OK` + `UserResponse[]` |
+### Backend
 
-### Protected Conversation Endpoints (Requires `Authorization: Bearer <token>`)
-| Method | Endpoint | Description | Request Body | Response |
-|---|---|---|---|---|
-| `POST` | `/api/conversations` | Create or retrieve 1-to-1 conversation | `{ "recipientId": "..." }` | `201 Created` + `ConversationResponse` |
-| `GET` | `/api/conversations` | List user's active conversations | None | `200 OK` + `ConversationResponse[]` |
-| `GET` | `/api/conversations/{id}` | Get conversation by ID (participants only) | None | `200 OK` + `ConversationResponse` |
+| Variable | Required | Description | Default |
+|---|---|---|---|
+| `PORT` | No | HTTP port | `8080` |
+| `SPRING_PROFILES_ACTIVE` | No | Set to `prod` in production | unset |
+| `MONGODB_URI` | Yes* | MongoDB connection URI | `mongodb://localhost:27017/fairish_chat` |
+| `MONGODB_DATABASE` | No | Database name | `fairish_chat` |
+| `JWT_SECRET` | Yes | HS256 secret, minimum 32 bytes | none — startup fails |
+| `JWT_EXPIRATION` | No | Token lifetime in ms | `86400000` (24 h) |
+| `CORS_ALLOWED_ORIGINS` | In `prod` | Comma-separated exact frontend origins | localhost dev origins |
+| `AVATAR_STORAGE_ENABLED` | No | Enable S3 avatar storage | `false` in dev config; `true` in `prod` |
+| `AVATAR_STORAGE_ENDPOINT` | For MinIO/R2 | S3 endpoint URL | empty (AWS default) |
+| `AVATAR_STORAGE_REGION` | No | S3 region (`auto` for R2) | `us-east-1` |
+| `AVATAR_STORAGE_BUCKET` | No | Private bucket name | `fairish-avatars` |
+| `AVATAR_STORAGE_ACCESS_KEY` | When enabled | Access key ID | none |
+| `AVATAR_STORAGE_SECRET_KEY` | When enabled | Secret access key | none |
+| `AVATAR_STORAGE_PATH_STYLE_ACCESS` | No | Path-style addressing (MinIO: `true`, R2: `false`) | `true` |
+| `AVATAR_STORAGE_CREATE_BUCKET` | No | Create the bucket if missing (MinIO) | `true` |
+| `AVATAR_MAX_UPLOAD_BYTES` | No | Maximum avatar upload size | `5242880` (5 MB) |
+| `AVATAR_MAX_REQUEST_BYTES` | No | Multipart request limit | `6MB` |
+| `AVATAR_OUTPUT_SIZE` | No | Normalized avatar edge length in px | `512` |
 
-### Protected Message Endpoints (Requires `Authorization: Bearer <token>`)
-| Method | Endpoint | Description | Request Body | Response |
-|---|---|---|---|---|
-| `GET` | `/api/conversations/{id}/messages?page=0&size=20` | Get paginated message history (participants only) | None | `200 OK` + `PaginatedResponse<MessageResponse>` |
-| `POST` | `/api/conversations/{id}/messages` | Send message (sender derived from JWT) | `{ "content": "..." }` | `201 Created` + `MessageResponse` |
+\* `MONGODB_URI` has a localhost default, so it is only strictly required when the database
+is not running on the default local address.
 
----
+The `prod` profile defaults avatar storage to enabled and fails fast if credentials are
+missing. It also requires `CORS_ALLOWED_ORIGINS`, disables exception details in error
+responses, and trusts `X-Forwarded-*` headers.
 
-## 7. Automated Testing
+### Frontend
 
-The backend includes a comprehensive suite of 57 unit and integration tests covering security, controllers, services, repositories, and exception handling.
+| Variable | Required | Description |
+|---|---|---|
+| `VITE_API_BASE_URL` | Yes | Backend REST base URL, e.g. `https://api.example.com/api` |
+| `VITE_WS_URL` | No | WebSocket base URL, e.g. `wss://api.example.com/ws`; derived from the API URL when omitted |
+
+`VITE_*` values are public and embedded in the client bundle. Never put secrets in them.
+
+## REST API
+
+All endpoints return JSON. Protected endpoints require `Authorization: Bearer <token>`.
+Errors use a consistent shape: `{ timestamp, status, error, message, path }` (plus
+`validationErrors` for bean-validation failures).
+
+### Public
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/health` | Uptime check |
+| `POST` | `/api/auth/register` | Create an account |
+| `POST` | `/api/auth/login` | Log in with email or username |
+| `POST` | `/api/auth/logout` | Client-side logout acknowledgment |
+
+### Users and avatars
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/users/me` | Own profile (includes email) |
+| `PUT` | `/api/users/me` | Update username and/or bio |
+| `GET` | `/api/users/search?query=...` | Exact 24-hex Fairish User ID lookup, otherwise username substring search |
+| `POST` | `/api/users/me/avatar` | Upload avatar (`multipart/form-data`, part name `file`) |
+| `DELETE` | `/api/users/me/avatar` | Remove avatar |
+| `GET` | `/api/users/{id}/avatar` | Stream avatar bytes (owner or accepted contact only) |
+
+Search results and other-user projections never include email addresses, storage keys, or
+legacy profile-image URLs.
+
+### Contacts
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/contacts/requests` | Send request (`{ "recipientId": "..." }`) → `201` |
+| `GET` | `/api/contacts/requests/incoming` | Pending requests received |
+| `GET` | `/api/contacts/requests/outgoing` | Pending requests sent |
+| `POST` | `/api/contacts/requests/{id}/accept` | Accept (recipient only) |
+| `POST` | `/api/contacts/requests/{id}/decline` | Decline (recipient only) |
+| `DELETE` | `/api/contacts/requests/{id}` | Cancel (requester only) → `204` |
+| `GET` | `/api/contacts` | Accepted contacts |
+| `DELETE` | `/api/contacts/{contactUserId}` | Remove contact → `204` |
+
+### Conversations and messages
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/conversations` | Create or return a conversation (`{ "recipientId": "..." }`) → `201`; requires accepted contact |
+| `GET` | `/api/conversations` | Conversations with accepted contacts only |
+| `GET` | `/api/conversations/{id}` | Conversation details; requires accepted contact |
+| `GET` | `/api/conversations/{id}/messages?page=0&size=20` | Paginated history, newest first; `size` is clamped to 1–100 |
+| `POST` | `/api/conversations/{id}/messages` | Send message (`{ "content": "..." }`, 1–2000 characters) → `201` |
+
+### Common status codes
+
+| Status | Meaning |
+|---|---|
+| `400` | Validation failure or invalid state transition input |
+| `401` | Missing/invalid/expired token, or bad credentials |
+| `403` | Not a participant, or not accepted contacts |
+| `404` | Resource not found |
+| `409` | Duplicate resource or invalid contact-request transition |
+| `413` | Avatar upload too large |
+| `503` | Database or avatar storage unavailable, or avatar storage disabled |
+
+## WebSocket / STOMP
+
+- **Endpoint**: `/ws` (native WebSocket, plus a SockJS fallback registered on the same path)
+- **Broker**: in-memory simple broker with `/topic` and `/queue` prefixes
+- **Application prefix**: `/app`
+- **Allowed origins**: the same `CORS_ALLOWED_ORIGINS` list
+
+Authentication:
+
+- Send the JWT as a STOMP `CONNECT` native header (`Authorization: Bearer <token>` or
+  `token: <token>`), or
+- Append `?token=<jwt>` to the WebSocket handshake URL. The frontend uses this query-parameter
+  form and does not put the token in a URL fragment.
+
+Subscribe and send:
+
+| Frame | Destination | Notes |
+|---|---|---|
+| `SUBSCRIBE` | `/topic/conversations/{conversationId}` | Authorized only for participants who are accepted contacts |
+| `SEND` | `/app/conversations/{conversationId}/sendMessage` | Body: `{ "content": "..." }` |
+| `SEND` | `/app/chat.sendMessage` | Body: `{ "conversationId": "...", "content": "..." }` |
+
+The inbound channel interceptor validates `CONNECT`, `SUBSCRIBE`, and `SEND`. Every send is
+also re-validated inside `MessageService`, so the DTO/destination cannot be used to skip the
+contact check.
+
+## Testing
+
+### Backend
 
 ```bash
 cd backend
-.\mvnw.cmd test
+.\mvnw.cmd test      # Windows
+./mvnw test          # macOS / Linux
 ```
 
-### Test Coverage Highlights
-- `ConversationServiceTest`: Conversation creation, deterministic duplicate key prevention, self-conversation rejection (400), nonexistent recipient rejection (404), participant-only authorization enforcement (403), concurrent creation handling.
-- `MessageServiceTest`: Persistent message storage, sender ID extraction from JWT principal, non-participant rejection (403), empty message rejection (400), oversized message rejection (400), reverse-chronological pagination.
-- `ConversationControllerTest`: MockMvc tests for `POST /api/conversations`, `GET /api/conversations`, `GET /api/conversations/{id}`, and 403 Forbidden handling.
-- `MessageControllerTest`: MockMvc tests for `POST /api/conversations/{id}/messages` (201), empty message (400), paginated `GET` (200), and non-participant forbidden (403).
-- `JwtServiceTest`: Token generation, claim extraction, username verification, expired token rejection.
-- `AuthServiceTest`: Successful registration, duplicate email rejection (409), duplicate username rejection (409), login validation, password mismatch handling.
-- `UserServiceTest`: Profile retrieval, duplicate username check on update, safe profile modification, user search filtering.
-- `AuthControllerTest`: MockMvc verification of register, login, validation errors, conflict responses, and logout.
-- `UserControllerTest`: Profile endpoints, search endpoint, authentication principal mapping.
-- `SecurityIntegrationTest`: Filter chain security, public endpoint accessibility, unauthenticated request rejection (401), valid Bearer token acceptance.
-- `HealthControllerTest`: Health endpoint uptime check.
-- `DotenvEnvironmentPostProcessorTest`: Local `.env` loading, property source precedence.
-- `GlobalExceptionHandlerTest`: Diagnostic categorizations for data access, auth, timeout, and DNS errors.
+Current result: **204 tests, 0 failures, 0 errors, 1 skipped**.
 
----
+Coverage includes service-level policy tests, MockMvc controller tests, JWT/security tests,
+avatar processing/storage tests, privacy serialization tests, and STOMP interceptor tests.
+The contact rule is tested for creation, listing/filtering, REST history/send, and STOMP
+subscribe/send after removal.
 
-## 8. Phases & Roadmap
+Test caveats:
 
-### Phase 1: Foundation, Authentication & Users (Completed)
-- [x] Backend architecture & clean packaging (`com.fairish.chat`)
-- [x] User document & unique indexes
-- [x] BCrypt password hashing & Bean validation
-- [x] JWT authentication & Spring Security 6
-- [x] User profile retrieval, update & search
-- [x] Centralized error handling & health check
-- [x] Full React + Vite + TypeScript frontend with auth guards
+- `S3AvatarStorageMinioTest` is a real MinIO round-trip via Testcontainers and is **skipped
+  when Docker is unavailable** (the one skipped test in the count above).
+- `AtlasConnectionTest` is **not hermetic**: it loads the local `.env` and attempts a live
+  MongoDB Atlas ping, swallowing connection errors. Do not treat it as a deterministic
+  integration test or run it in CI without an isolated database.
+- There is no full end-to-end test that drives real MongoDB + HTTP + STOMP together; the
+  authorization boundary is covered by unit, MockMvc, and interceptor tests.
 
-### Phase 2: Conversations & Persistent Message History (Completed)
-- [x] MongoDB `Conversation` model with deterministic participant keys & duplicate prevention
-- [x] MongoDB `Message` model with chronological compound indexes
-- [x] Participant-only access control on conversations and message history (403 Forbidden)
-- [x] Paginated message history loading (`PaginatedResponse`)
-- [x] Secure sender identification derived from JWT authentication principal
-- [x] Enhanced React dashboard with conversation list, user search, message bubbles, load older messages, and input bar
-- [x] 100% automated test pass rate (57 tests passing)
+### Frontend
 
-### Future Phases (Roadmap)
-- **Phase 3**: Real-time messaging (WebSocket / STOMP), User presence (Online/Offline status), Typing indicators, Delivery/Read receipts.
-- **Phase 4**: Group chats, Media attachment uploads, Push notifications, Production containerization (Docker).
+```bash
+cd frontend
+npx tsc --noEmit
+npm run build
+```
 
+The production build requires non-localhost URLs, for example:
+
+```bash
+# PowerShell
+$env:VITE_API_BASE_URL='https://api.example.com/api'
+$env:VITE_WS_URL='wss://api.example.com/ws'
+npm run build
+```
+
+There is currently no frontend unit or end-to-end test script; validation is TypeScript
+compilation plus a production build.
+
+## Production notes
+
+1. Activate the `prod` profile and set `JWT_SECRET`, `MONGODB_URI`, and
+   `CORS_ALLOWED_ORIGINS` explicitly.
+2. Use Cloudflare R2 (or another private S3-compatible bucket) with path-style access
+   disabled and the bucket provisioned out of band. Keep the bucket private; the application
+   never issues public or presigned URLs.
+3. Terminate TLS at your reverse proxy and forward WebSocket upgrades for `/ws`.
+4. Build the frontend with the public HTTPS API and WebSocket URLs.
+5. Serve the SPA with a fallback rewrite to `index.html` (`frontend/public/_redirects` and
+   `frontend/vercel.json` are included for common hosts).
+
+## Known limitations
+
+- **No end-to-end encryption.** Message content is stored in MongoDB in plaintext. TLS
+  protects transport only; the server can read message data.
+- **No presence, typing indicators, or read receipts.**
+- **Single-instance real-time broker.** The STOMP simple broker is in-memory, so multiple
+  backend instances do not share subscriptions. Horizontal scaling would require an external
+  broker (e.g. RabbitMQ with a STOMP relay).
+- **No rate limiting or abuse protection** on auth, search, contact requests, messages, or
+  avatar uploads.
+- **No group chats, message attachments, or push notifications.**
+- **Contact removal is an access revocation, not a data deletion.** Conversation and message
+  documents remain in MongoDB and become visible again if the contact is re-accepted.
+- **Avatar delivery is proxied** through the backend (private cache, `Authorization`-varying)
+  rather than served from a CDN.
