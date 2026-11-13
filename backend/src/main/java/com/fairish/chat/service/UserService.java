@@ -16,6 +16,7 @@ import org.springframework.util.StringUtils;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -78,13 +79,31 @@ public class UserService {
         return UserResponse.fromUser(updatedUser);
     }
 
+    private static final Pattern OBJECT_ID_PATTERN = Pattern.compile("^[0-9a-fA-F]{24}$");
+
     @Transactional(readOnly = true)
     public List<PublicUserResponse> searchUsers(String currentUsername, String query) {
         if (!StringUtils.hasText(query)) {
             return Collections.emptyList();
         }
 
-        String safeRegex = Pattern.quote(query.trim());
+        String trimmedQuery = query.trim();
+
+        // A 24-hex value is a Fairish User ID; resolve it exactly so users can be
+        // found by the identifier they share. Fall back to username search when
+        // no user owns that ID.
+        if (OBJECT_ID_PATTERN.matcher(trimmedQuery).matches()) {
+            Optional<User> byId = userRepository.findById(trimmedQuery);
+            if (byId.isPresent()) {
+                User user = byId.get();
+                if (user.getUsername().equalsIgnoreCase(currentUsername)) {
+                    return Collections.emptyList();
+                }
+                return List.of(PublicUserResponse.fromUser(user));
+            }
+        }
+
+        String safeRegex = Pattern.quote(trimmedQuery);
         List<User> matchedUsers = userRepository.searchByUsername(safeRegex);
 
         return matchedUsers.stream()

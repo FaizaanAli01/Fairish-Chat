@@ -123,5 +123,51 @@ class UserServiceTest {
         assertEquals(1, results.size());
         assertEquals("jane_doe", results.get(0).getUsername());
     }
+
+    @Test
+    @DisplayName("Should find a user by their exact Fairish User ID")
+    void shouldSearchUserById() {
+        String userId = "507f1f77bcf86cd799439011";
+        User otherUser = User.builder()
+                .id(userId)
+                .username("jane_doe")
+                .email("jane@example.com")
+                .build();
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(otherUser));
+
+        List<PublicUserResponse> results = userService.searchUsers("john_doe", userId);
+
+        assertEquals(1, results.size());
+        assertEquals(userId, results.get(0).getId());
+        assertEquals("jane_doe", results.get(0).getUsername());
+        verify(userRepository, never()).searchByUsername(anyString());
+    }
+
+    @Test
+    @DisplayName("Should not return the current user when searching by their own ID")
+    void shouldExcludeCurrentUserWhenSearchingById() {
+        String userId = "507f1f77bcf86cd799439011";
+        User self = User.builder()
+                .id(userId)
+                .username("john_doe")
+                .email("john@example.com")
+                .build();
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(self));
+
+        assertTrue(userService.searchUsers("john_doe", userId).isEmpty());
+    }
+
+    @Test
+    @DisplayName("Should fall back to username search when no user owns the ID-shaped query")
+    void shouldFallBackWhenIdNotFound() {
+        String userId = "507f1f77bcf86cd799439011";
+        when(userRepository.findById(userId)).thenReturn(Optional.empty());
+        when(userRepository.searchByUsername(anyString())).thenReturn(List.of());
+
+        assertTrue(userService.searchUsers("john_doe", userId).isEmpty());
+        verify(userRepository).searchByUsername(anyString());
+    }
 }
 
