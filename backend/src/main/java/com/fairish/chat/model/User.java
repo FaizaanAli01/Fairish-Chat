@@ -23,6 +23,16 @@ public class User {
 
     private String passwordHash;
     private String profileImage;
+
+    /**
+     * Private storage key for the current avatar. Never exposed through any API
+     * response. Null when the user has not uploaded an avatar.
+     */
+    private String avatarKey;
+
+    private String avatarContentType;
+    private Instant avatarUpdatedAt;
+
     private String bio;
     private boolean online = false;
     private Instant lastSeen;
@@ -37,12 +47,16 @@ public class User {
     }
 
     public User(String id, String username, String email, String passwordHash, String profileImage,
+                String avatarKey, String avatarContentType, Instant avatarUpdatedAt,
                 String bio, boolean online, Instant lastSeen, Instant createdAt, Instant updatedAt) {
         this.id = id;
         this.username = username;
         this.email = email;
         this.passwordHash = passwordHash;
         this.profileImage = profileImage;
+        this.avatarKey = avatarKey;
+        this.avatarContentType = avatarContentType;
+        this.avatarUpdatedAt = avatarUpdatedAt;
         this.bio = bio;
         this.online = online;
         this.lastSeen = lastSeen;
@@ -94,6 +108,34 @@ public class User {
         this.profileImage = profileImage;
     }
 
+    public String getAvatarKey() {
+        return avatarKey;
+    }
+
+    public void setAvatarKey(String avatarKey) {
+        this.avatarKey = avatarKey;
+    }
+
+    public String getAvatarContentType() {
+        return avatarContentType;
+    }
+
+    public void setAvatarContentType(String avatarContentType) {
+        this.avatarContentType = avatarContentType;
+    }
+
+    public Instant getAvatarUpdatedAt() {
+        return avatarUpdatedAt;
+    }
+
+    public void setAvatarUpdatedAt(Instant avatarUpdatedAt) {
+        this.avatarUpdatedAt = avatarUpdatedAt;
+    }
+
+    public boolean hasAvatar() {
+        return avatarKey != null && !avatarKey.isBlank();
+    }
+
     public String getBio() {
         return bio;
     }
@@ -140,6 +182,9 @@ public class User {
         private String email;
         private String passwordHash;
         private String profileImage;
+        private String avatarKey;
+        private String avatarContentType;
+        private Instant avatarUpdatedAt;
         private String bio;
         private boolean online = false;
         private Instant lastSeen;
@@ -174,6 +219,21 @@ public class User {
             return this;
         }
 
+        public UserBuilder avatarKey(String avatarKey) {
+            this.avatarKey = avatarKey;
+            return this;
+        }
+
+        public UserBuilder avatarContentType(String avatarContentType) {
+            this.avatarContentType = avatarContentType;
+            return this;
+        }
+
+        public UserBuilder avatarUpdatedAt(Instant avatarUpdatedAt) {
+            this.avatarUpdatedAt = avatarUpdatedAt;
+            return this;
+        }
+
         public UserBuilder bio(String bio) {
             this.bio = bio;
             return this;
@@ -200,7 +260,9 @@ public class User {
         }
 
         public User build() {
-            return new User(id, username, email, passwordHash, profileImage, bio, online, lastSeen, createdAt, updatedAt);
+            return new User(id, username, email, passwordHash, profileImage,
+                    avatarKey, avatarContentType, avatarUpdatedAt,
+                    bio, online, lastSeen, createdAt, updatedAt);
         }
     }
 

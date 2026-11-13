@@ -1,8 +1,11 @@
 package com.fairish.chat.security;
 
+import com.fairish.chat.controller.AvatarController;
 import com.fairish.chat.controller.HealthController;
 import com.fairish.chat.controller.UserController;
 import com.fairish.chat.dto.UserResponse;
+import com.fairish.chat.repository.UserRepository;
+import com.fairish.chat.service.AvatarService;
 import com.fairish.chat.service.UserService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -11,6 +14,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.test.web.servlet.MockMvc;
@@ -21,10 +25,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(controllers = {HealthController.class, UserController.class})
+@WebMvcTest(controllers = {HealthController.class, UserController.class, AvatarController.class})
 @Import({SecurityConfig.class, JwtAuthenticationEntryPoint.class, JwtAuthenticationFilter.class})
 class SecurityIntegrationTest {
 
@@ -39,6 +44,12 @@ class SecurityIntegrationTest {
 
     @MockBean
     private UserService userService;
+
+    @MockBean
+    private AvatarService avatarService;
+
+    @MockBean
+    private UserRepository userRepository;
 
     @Test
     @DisplayName("Public endpoint /api/health should be accessible without token")
@@ -76,6 +87,25 @@ class SecurityIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.username").value("john_doe"));
+    }
+
+    @Test
+    @DisplayName("Avatar delivery should reject unauthenticated requests with 401")
+    void avatarDeliveryShouldRejectUnauthenticated() throws Exception {
+        mockMvc.perform(get("/api/users/user-2/avatar"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401));
+    }
+
+    @Test
+    @DisplayName("Avatar upload should reject unauthenticated requests with 401")
+    void avatarUploadShouldRejectUnauthenticated() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "avatar.png", "image/png", new byte[]{1, 2, 3});
+
+        mockMvc.perform(multipart("/api/users/me/avatar").file(file))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401));
     }
 }
 

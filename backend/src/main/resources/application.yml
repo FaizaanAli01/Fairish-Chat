@@ -4,6 +4,11 @@ server:
 spring:
   application:
     name: fairish-chat-backend
+  servlet:
+    multipart:
+      # Hard transport limit. The service also validates the decoded byte length.
+      max-file-size: ${AVATAR_MAX_UPLOAD_BYTES:5MB}
+      max-request-size: ${AVATAR_MAX_REQUEST_BYTES:6MB}
   data:
     mongodb:
       uri: ${MONGODB_URI:mongodb://localhost:27017/fairish_chat}
@@ -20,6 +25,25 @@ app:
     # Development defaults only. Production must set CORS_ALLOWED_ORIGINS to the
     # exact frontend origin(s); see application-prod.yml.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,http://localhost:4173,http://127.0.0.1:5173}
+  avatar:
+    max-upload-bytes: ${AVATAR_MAX_UPLOAD_BYTES:5242880}
+    output-size: ${AVATAR_OUTPUT_SIZE:512}
+    storage:
+      # Cloudflare R2 in production, MinIO locally. Credentials come only from
+      # environment variables and are never committed.
+      #
+      # Local default is disabled so the backend still boots without MinIO;
+      # set AVATAR_STORAGE_ENABLED=true (and the MinIO settings below) to use
+      # avatars locally. Production enables this by default and fails fast if
+      # credentials are missing.
+      enabled: ${AVATAR_STORAGE_ENABLED:false}
+      endpoint: ${AVATAR_STORAGE_ENDPOINT:}
+      region: ${AVATAR_STORAGE_REGION:us-east-1}
+      bucket: ${AVATAR_STORAGE_BUCKET:fairish-avatars}
+      access-key: ${AVATAR_STORAGE_ACCESS_KEY:}
+      secret-key: ${AVATAR_STORAGE_SECRET_KEY:}
+      path-style-access: ${AVATAR_STORAGE_PATH_STYLE_ACCESS:true}
+      create-bucket: ${AVATAR_STORAGE_CREATE_BUCKET:true}
 
 logging:
   level:

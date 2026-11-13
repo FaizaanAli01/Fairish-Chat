@@ -18,6 +18,15 @@ app:
     # Production requires an explicit, comma-separated list of exact frontend origins.
     # No localhost defaults are applied in the prod profile.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:}
+  avatar:
+    storage:
+      # Cloudflare R2: virtual-hosted style, automatic region, bucket provisioned
+      # out of band. The endpoint must be supplied via AVATAR_STORAGE_ENDPOINT.
+      # Production defaults to enabled and refuses to start without credentials.
+      enabled: ${AVATAR_STORAGE_ENABLED:true}
+      region: ${AVATAR_STORAGE_REGION:auto}
+      path-style-access: false
+      create-bucket: false
 
 logging:
   level:

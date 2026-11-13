@@ -8,9 +8,15 @@ import java.time.Instant;
  * Public projection of a user.
  *
  * <p>This DTO is used whenever a user is returned to somebody other than that
- * user: user search results and the other participant in a conversation. It
- * deliberately omits the email address so another user's email is never
- * exposed through the API.</p>
+ * user: user search results, contact requests, and the other participant in a
+ * conversation. It deliberately omits the email address and the legacy
+ * {@code profileImage} URL so another user's private data is never exposed
+ * through the API.</p>
+ *
+ * <p>Avatars are delivered exclusively through the authenticated
+ * {@code GET /api/users/{id}/avatar} proxy. {@link #hasAvatar} and
+ * {@link #avatarUpdatedAt} are metadata only; no storage key or object URL is
+ * ever returned.</p>
  *
  * <p>Use {@link UserResponse} for the authenticated user's own profile
  * ({@code /api/users/me}) and authentication responses, where the email is
@@ -20,24 +26,26 @@ public class PublicUserResponse {
 
     private String id;
     private String username;
-    private String profileImage;
     private String bio;
     private boolean online;
     private Instant lastSeen;
+    private boolean hasAvatar;
+    private Instant avatarUpdatedAt;
     private Instant createdAt;
     private Instant updatedAt;
 
     public PublicUserResponse() {
     }
 
-    public PublicUserResponse(String id, String username, String profileImage, String bio,
-                              boolean online, Instant lastSeen, Instant createdAt, Instant updatedAt) {
+    public PublicUserResponse(String id, String username, String bio, boolean online, Instant lastSeen,
+                              boolean hasAvatar, Instant avatarUpdatedAt, Instant createdAt, Instant updatedAt) {
         this.id = id;
         this.username = username;
-        this.profileImage = profileImage;
         this.bio = bio;
         this.online = online;
         this.lastSeen = lastSeen;
+        this.hasAvatar = hasAvatar;
+        this.avatarUpdatedAt = avatarUpdatedAt;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
@@ -49,10 +57,11 @@ public class PublicUserResponse {
         return PublicUserResponse.builder()
                 .id(user.getId())
                 .username(user.getUsername())
-                .profileImage(user.getProfileImage())
                 .bio(user.getBio())
                 .online(user.isOnline())
                 .lastSeen(user.getLastSeen())
+                .hasAvatar(user.hasAvatar())
+                .avatarUpdatedAt(user.getAvatarUpdatedAt())
                 .createdAt(user.getCreatedAt())
                 .updatedAt(user.getUpdatedAt())
                 .build();
@@ -76,14 +85,6 @@ public class PublicUserResponse {
 
     public void setUsername(String username) {
         this.username = username;
-    }
-
-    public String getProfileImage() {
-        return profileImage;
-    }
-
-    public void setProfileImage(String profileImage) {
-        this.profileImage = profileImage;
     }
 
     public String getBio() {
@@ -110,6 +111,22 @@ public class PublicUserResponse {
         this.lastSeen = lastSeen;
     }
 
+    public boolean isHasAvatar() {
+        return hasAvatar;
+    }
+
+    public void setHasAvatar(boolean hasAvatar) {
+        this.hasAvatar = hasAvatar;
+    }
+
+    public Instant getAvatarUpdatedAt() {
+        return avatarUpdatedAt;
+    }
+
+    public void setAvatarUpdatedAt(Instant avatarUpdatedAt) {
+        this.avatarUpdatedAt = avatarUpdatedAt;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
@@ -129,10 +146,11 @@ public class PublicUserResponse {
     public static class PublicUserResponseBuilder {
         private String id;
         private String username;
-        private String profileImage;
         private String bio;
         private boolean online;
         private Instant lastSeen;
+        private boolean hasAvatar;
+        private Instant avatarUpdatedAt;
         private Instant createdAt;
         private Instant updatedAt;
 
@@ -146,11 +164,6 @@ public class PublicUserResponse {
 
         public PublicUserResponseBuilder username(String username) {
             this.username = username;
-            return this;
-        }
-
-        public PublicUserResponseBuilder profileImage(String profileImage) {
-            this.profileImage = profileImage;
             return this;
         }
 
@@ -169,6 +182,16 @@ public class PublicUserResponse {
             return this;
         }
 
+        public PublicUserResponseBuilder hasAvatar(boolean hasAvatar) {
+            this.hasAvatar = hasAvatar;
+            return this;
+        }
+
+        public PublicUserResponseBuilder avatarUpdatedAt(Instant avatarUpdatedAt) {
+            this.avatarUpdatedAt = avatarUpdatedAt;
+            return this;
+        }
+
         public PublicUserResponseBuilder createdAt(Instant createdAt) {
             this.createdAt = createdAt;
             return this;
@@ -180,7 +203,8 @@ public class PublicUserResponse {
         }
 
         public PublicUserResponse build() {
-            return new PublicUserResponse(id, username, profileImage, bio, online, lastSeen, createdAt, updatedAt);
+            return new PublicUserResponse(id, username, bio, online, lastSeen,
+                    hasAvatar, avatarUpdatedAt, createdAt, updatedAt);
         }
     }
 }

@@ -10,6 +10,8 @@ public class UserResponse {
     private String username;
     private String email;
     private String profileImage;
+    private boolean hasAvatar;
+    private Instant avatarUpdatedAt;
     private String bio;
     private boolean online;
     private Instant lastSeen;
@@ -19,12 +21,15 @@ public class UserResponse {
     public UserResponse() {
     }
 
-    public UserResponse(String id, String username, String email, String profileImage, String bio,
+    public UserResponse(String id, String username, String email, String profileImage,
+                        boolean hasAvatar, Instant avatarUpdatedAt, String bio,
                         boolean online, Instant lastSeen, Instant createdAt, Instant updatedAt) {
         this.id = id;
         this.username = username;
         this.email = email;
         this.profileImage = profileImage;
+        this.hasAvatar = hasAvatar;
+        this.avatarUpdatedAt = avatarUpdatedAt;
         this.bio = bio;
         this.online = online;
         this.lastSeen = lastSeen;
@@ -41,6 +46,8 @@ public class UserResponse {
                 .username(user.getUsername())
                 .email(user.getEmail())
                 .profileImage(user.getProfileImage())
+                .hasAvatar(user.hasAvatar())
+                .avatarUpdatedAt(user.getAvatarUpdatedAt())
                 .bio(user.getBio())
                 .online(user.isOnline())
                 .lastSeen(user.getLastSeen())
@@ -83,6 +90,22 @@ public class UserResponse {
 
     public void setProfileImage(String profileImage) {
         this.profileImage = profileImage;
+    }
+
+    public boolean isHasAvatar() {
+        return hasAvatar;
+    }
+
+    public void setHasAvatar(boolean hasAvatar) {
+        this.hasAvatar = hasAvatar;
+    }
+
+    public Instant getAvatarUpdatedAt() {
+        return avatarUpdatedAt;
+    }
+
+    public void setAvatarUpdatedAt(Instant avatarUpdatedAt) {
+        this.avatarUpdatedAt = avatarUpdatedAt;
     }
 
     public String getBio() {
@@ -130,6 +153,8 @@ public class UserResponse {
         private String username;
         private String email;
         private String profileImage;
+        private boolean hasAvatar;
+        private Instant avatarUpdatedAt;
         private String bio;
         private boolean online;
         private Instant lastSeen;
@@ -159,6 +184,16 @@ public class UserResponse {
             return this;
         }
 
+        public UserResponseBuilder hasAvatar(boolean hasAvatar) {
+            this.hasAvatar = hasAvatar;
+            return this;
+        }
+
+        public UserResponseBuilder avatarUpdatedAt(Instant avatarUpdatedAt) {
+            this.avatarUpdatedAt = avatarUpdatedAt;
+            return this;
+        }
+
         public UserResponseBuilder bio(String bio) {
             this.bio = bio;
             return this;
@@ -185,7 +220,8 @@ public class UserResponse {
         }
 
         public UserResponse build() {
-            return new UserResponse(id, username, email, profileImage, bio, online, lastSeen, createdAt, updatedAt);
+            return new UserResponse(id, username, email, profileImage,
+                    hasAvatar, avatarUpdatedAt, bio, online, lastSeen, createdAt, updatedAt);
         }
     }
 }
