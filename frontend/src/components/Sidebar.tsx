@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { Search, MessageSquare, User as UserIcon, Users, RefreshCw, Sparkles, UserPlus } from 'lucide-react';
-import { userApi } from '../api/userApi';
+import React, { useCallback, useState } from 'react';
+import { MessageSquare, Users, RefreshCw, UserPlus } from 'lucide-react';
 import { PublicUser } from '../types/user';
 import { Conversation } from '../types/conversation';
 import { LoadingSpinner } from './LoadingSpinner';
 import { Avatar } from './Avatar';
+import { ContactsPanel } from './ContactsPanel';
 
 interface SidebarProps {
   conversations: Conversation[];
@@ -13,6 +13,7 @@ interface SidebarProps {
   onStartConversationWithUser: (user: PublicUser) => void;
   isLoadingConversations: boolean;
   onRefreshConversations: () => void;
+  onContactsChanged: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -22,33 +23,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onStartConversationWithUser,
   isLoadingConversations,
   onRefreshConversations,
+  onContactsChanged,
 }) => {
-  const [activeTab, setActiveTab] = useState<'conversations' | 'users'>('conversations');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<PublicUser[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  const [activeTab, setActiveTab] = useState<'conversations' | 'contacts'>('conversations');
+  const [pendingRequestCount, setPendingRequestCount] = useState(0);
 
-  // Search users debounce
-  useEffect(() => {
-    if (!searchQuery.trim()) {
-      setSearchResults([]);
-      return;
-    }
-
-    const timer = setTimeout(async () => {
-      setIsSearching(true);
-      try {
-        const results = await userApi.searchUsers(searchQuery);
-        setSearchResults(results);
-      } catch (err) {
-        console.error('Failed to search users:', err);
-      } finally {
-        setIsSearching(false);
-      }
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
+  const handlePendingCountChange = useCallback((count: number) => {
+    setPendingRequestCount(count);
+  }, []);
 
   const formatMessageTime = (dateStr?: string | null) => {
     if (!dateStr) return '';
@@ -98,15 +80,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
 
           <button
-            onClick={() => setActiveTab('users')}
+            onClick={() => setActiveTab('contacts')}
             className={`flex-1 flex items-center justify-center space-x-1.5 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all duration-200 truncate ${
-              activeTab === 'users'
+              activeTab === 'contacts'
                 ? 'bg-violet-primary text-white shadow-violet-sm'
                 : 'text-content-secondary hover:text-content-primary hover:bg-dark-hover'
             }`}
           >
             <Users className="w-3.5 h-3.5 flex-shrink-0" />
-            <span className="truncate">Find Users</span>
+            <span className="truncate">Contacts</span>
+            {pendingRequestCount > 0 && (
+              <span
+                className={`ml-1 min-w-[1.1rem] h-[1.1rem] px-1 rounded-full text-[10px] font-bold flex items-center justify-center flex-shrink-0 ${
+                  activeTab === 'contacts'
+                    ? 'bg-white text-violet-primary'
+                    : 'bg-status-warning text-dark-bg'
+                }`}
+                aria-label={`${pendingRequestCount} pending contact requests`}
+              >
+                {pendingRequestCount}
+              </span>
+            )}
           </button>
         </div>
 
@@ -123,86 +117,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
       </div>
 
-      {/* Tab: Users Directory (Search) */}
-      {activeTab === 'users' ? (
-        <div className="flex-1 flex flex-col overflow-hidden min-h-0 bg-dark-sidebar">
-          {/* Search Input Container */}
-          <div className="p-3 border-b border-dark-border flex-shrink-0">
-            <div className="relative">
-              <Search className="w-4 h-4 text-content-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Search registered users..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                autoFocus
-                className="w-full pl-9 pr-3.5 py-2.5 bg-dark-panel border border-dark-border rounded-xl text-xs sm:text-sm text-content-primary placeholder-content-muted focus:outline-none focus:border-violet-primary focus:ring-1 focus:ring-violet-primary transition-all"
-              />
-            </div>
-          </div>
-
-          {/* Search Results Area */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-1.5 min-h-0">
-            {isSearching ? (
-              <div className="py-10">
-                <LoadingSpinner size="sm" text="Searching users..." />
-              </div>
-            ) : searchQuery.trim() ? (
-              searchResults.length > 0 ? (
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-content-muted px-2 py-1 mb-1">
-                    Matching Users ({searchResults.length})
-                  </p>
-                  <div className="space-y-1">
-                    {searchResults.map((u) => (
-                      <button
-                        key={u.id}
-                        onClick={() => onStartConversationWithUser(u)}
-                        className="w-full flex items-center space-x-3 p-2.5 sm:p-3 rounded-xl text-left bg-dark-panel/60 hover:bg-dark-panel border border-transparent hover:border-dark-border transition-all group min-w-0"
-                      >
-                        <Avatar
-                          userId={u.id}
-                          username={u.username}
-                          hasAvatar={u.hasAvatar}
-                          avatarUpdatedAt={u.avatarUpdatedAt}
-                          className="w-10 h-10 text-xs shadow-sm"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <span className="font-semibold text-xs sm:text-sm text-content-primary truncate block group-hover:text-violet-lavender transition-colors">
-                            {u.username}
-                          </span>
-                          <p className="text-[11px] text-content-secondary truncate mt-0.5">
-                            {u.bio || 'No bio yet'}
-                          </p>
-                        </div>
-                        <span className="text-xs font-semibold text-violet-lavender bg-violet-primary/10 border border-violet-primary/20 px-2.5 py-1 rounded-lg opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
-                          Chat
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="py-12 text-center text-content-muted text-xs space-y-2">
-                  <UserIcon className="w-8 h-8 mx-auto text-content-muted/60" />
-                  <p>No registered users found matching "{searchQuery}"</p>
-                </div>
-              )
-            ) : (
-              <div className="px-3 py-10 text-center space-y-3.5">
-                <div className="w-12 h-12 mx-auto rounded-2xl bg-dark-panel border border-dark-border flex items-center justify-center text-violet-lavender shadow-sm">
-                  <Sparkles className="w-6 h-6 text-violet-primary" />
-                </div>
-                <div className="space-y-1">
-                  <h4 className="text-xs sm:text-sm font-semibold text-content-primary">Search User Directory</h4>
-                  <p className="text-xs text-content-secondary max-w-xs mx-auto leading-relaxed">
-                    Type a username to find other registered users and start an instant conversation.
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+      {/* Tab: Contacts (search, requests, accepted contacts) */}
+      {activeTab === 'contacts' ? (
+        <ContactsPanel
+          onContactsChanged={onContactsChanged}
+          onStartConversationWithUser={onStartConversationWithUser}
+          onPendingCountChange={handlePendingCountChange}
+        />
       ) : (
         /* Tab: Active Conversations */
         <div className="flex-1 overflow-y-auto p-2.5 sm:p-3 space-y-1.5 min-h-0 bg-dark-sidebar">
@@ -262,15 +183,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="space-y-1">
                 <h4 className="text-sm font-semibold text-content-primary">No conversations yet</h4>
                 <p className="text-xs text-content-secondary leading-relaxed max-w-xs mx-auto">
-                  Find a colleague or registered friend to start your first chat.
+                  Add a contact first. Chat unlocks once they accept your request.
                 </p>
               </div>
               <button
-                onClick={() => setActiveTab('users')}
+                onClick={() => setActiveTab('contacts')}
                 className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-violet-primary hover:bg-violet-hover text-white text-xs font-semibold shadow-violet-sm transition-all"
               >
                 <UserPlus className="w-3.5 h-3.5" />
-                <span>Find Someone</span>
+                <span>Manage Contacts</span>
               </button>
             </div>
           )}

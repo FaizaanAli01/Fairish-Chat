@@ -135,11 +135,18 @@ export const DashboardPage: React.FC = () => {
       const data = await conversationApi.getConversations();
       setConversations(data);
 
-      // If we currently have a selected conversation, refresh its reference
+      // If we currently have a selected conversation, refresh its reference.
+      // If it is no longer visible (for example the contact was removed), close
+      // the chat so revoked messaging access cannot continue in the UI.
       if (selectedConversationRef.current) {
         const updated = data.find((c) => c.id === selectedConversationRef.current?.id);
         if (updated) {
           setSelectedConversation(updated);
+        } else {
+          setSelectedConversation(null);
+          setMessages([]);
+          setHasMore(false);
+          setCurrentPage(0);
         }
       }
     } catch (err: any) {
@@ -152,6 +159,12 @@ export const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     fetchConversations();
+  }, [fetchConversations]);
+
+  // Contact mutations (accept, remove, ...) change who may chat; reload the
+  // conversation list so the sidebar and open chat reflect the new access.
+  const handleContactsChanged = useCallback(async () => {
+    await fetchConversations();
   }, [fetchConversations]);
 
   // Load initial messages for selected conversation
@@ -331,6 +344,7 @@ export const DashboardPage: React.FC = () => {
           onStartConversationWithUser={handleStartConversationWithUser}
           isLoadingConversations={isLoadingConversations}
           onRefreshConversations={fetchConversations}
+          onContactsChanged={handleContactsChanged}
         />
 
         {/* Main Chat Content Panel */}
@@ -368,7 +382,7 @@ export const DashboardPage: React.FC = () => {
                       <span className="truncate">{otherUser?.username || 'Chat Participant'}</span>
                       <span className="hidden xs:inline-flex items-center text-[10px] text-status-success bg-status-success/10 px-1.5 py-0.5 rounded-full border border-status-success/20 font-medium flex-shrink-0">
                         <CheckCircle2 className="w-2.5 h-2.5 mr-1" />
-                        Verified
+                        Contact
                       </span>
                     </h3>
                     <p className="text-xs text-content-secondary truncate mt-0.5">
@@ -524,7 +538,7 @@ export const DashboardPage: React.FC = () => {
                   Welcome to Fairish Chat, {user?.username}!
                 </h2>
                 <p className="text-content-secondary text-xs sm:text-sm leading-relaxed max-w-md mx-auto">
-                  Select an active chat from the sidebar or click <strong className="text-content-primary">Find Users</strong> to start an instant conversation.
+                  Select an active chat from the sidebar or open <strong className="text-content-primary">Contacts</strong> to add someone. Chat unlocks once they accept your request.
                 </p>
               </div>
 
@@ -532,12 +546,12 @@ export const DashboardPage: React.FC = () => {
               <div className="w-full bg-dark-panel border border-dark-border rounded-2xl p-5 text-left space-y-3.5 shadow-sm">
                 <div className="flex items-center space-x-2.5 text-content-primary font-semibold text-xs sm:text-sm">
                   <div className="w-2 h-2 rounded-full bg-status-success animate-pulse" />
-                  <span>Real-Time Electric Violet Platform</span>
+                  <span>Real-Time Messaging Platform</span>
                 </div>
                 <div className="space-y-2 text-xs text-content-secondary">
                   <p className="flex items-center space-x-2">
                     <span className="text-violet-lavender font-bold">•</span>
-                    <span>Direct 1-to-1 conversations between registered users</span>
+                    <span>Direct 1-to-1 conversations between accepted contacts</span>
                   </p>
                   <p className="flex items-center space-x-2">
                     <span className="text-violet-lavender font-bold">•</span>
@@ -549,7 +563,7 @@ export const DashboardPage: React.FC = () => {
                   </p>
                   <p className="flex items-center space-x-2">
                     <span className="text-violet-lavender font-bold">•</span>
-                    <span>Encrypted with stateless JWT and BCrypt security</span>
+                    <span>Secured with stateless JWT authentication and BCrypt password hashing</span>
                   </p>
                 </div>
               </div>
