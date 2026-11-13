@@ -23,6 +23,7 @@ import org.springframework.security.access.AccessDeniedException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -456,6 +457,24 @@ class ContactServiceTest {
         assertThrows(IllegalArgumentException.class,
                 () -> contactService.removeContact("user-1", "user-1"));
 
+        verifyNoInteractions(contactRequestRepository);
+    }
+
+    @Test
+    @DisplayName("Should return the IDs of accepted contacts only")
+    void shouldReturnAcceptedContactIds() {
+        when(contactRequestRepository.findByStatusAndParticipant(ContactStatus.ACCEPTED, "user-1"))
+                .thenReturn(List.of(acceptedRequest));
+
+        Set<String> contactIds = contactService.getAcceptedContactIds("user-1");
+
+        assertEquals(Set.of("user-2"), contactIds);
+    }
+
+    @Test
+    @DisplayName("Should return no accepted contact IDs for a blank user")
+    void shouldReturnNoAcceptedContactIdsForBlankUser() {
+        assertTrue(contactService.getAcceptedContactIds(" ").isEmpty());
         verifyNoInteractions(contactRequestRepository);
     }
 }

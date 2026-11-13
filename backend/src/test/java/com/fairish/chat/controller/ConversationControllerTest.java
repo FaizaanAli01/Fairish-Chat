@@ -156,4 +156,19 @@ class ConversationControllerTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error").value("Forbidden"));
     }
+
+    @Test
+    @WithMockUser(username = "alice")
+    @DisplayName("POST /api/conversations should return 403 when users are not accepted contacts")
+    void shouldReturnForbiddenWhenNotAcceptedContacts() throws Exception {
+        CreateConversationRequest request = new CreateConversationRequest("other-user-id");
+        when(conversationService.getOrCreateConversation(eq("current-user-id"), eq("other-user-id")))
+                .thenThrow(new AccessDeniedException("Chat is only available between accepted contacts"));
+
+        mockMvc.perform(post("/api/conversations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"));
+    }
 }

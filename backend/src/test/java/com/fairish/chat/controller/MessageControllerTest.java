@@ -142,4 +142,19 @@ class MessageControllerTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error").value("Forbidden"));
     }
+
+    @Test
+    @WithMockUser(username = "alice")
+    @DisplayName("POST /api/conversations/{convId}/messages should return 403 when contacts were removed")
+    void shouldReturnForbiddenAfterContactRemoval() throws Exception {
+        SendMessageRequest request = new SendMessageRequest("Hello again");
+        when(messageService.sendMessage(eq("conv-123"), eq("current-user-id"), any(SendMessageRequest.class)))
+                .thenThrow(new AccessDeniedException("Chat is only available between accepted contacts"));
+
+        mockMvc.perform(post("/api/conversations/conv-123/messages")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"));
+    }
 }

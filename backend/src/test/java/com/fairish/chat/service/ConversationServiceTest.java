@@ -34,6 +34,9 @@ class ConversationServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private ContactService contactService;
+
     @InjectMocks
     private ConversationService conversationService;
 
@@ -76,6 +79,7 @@ class ConversationServiceTest {
     @DisplayName("Should create new conversation between two distinct registered users")
     void shouldCreateNewConversation() {
         when(userRepository.findById("user-2-id")).thenReturn(Optional.of(user2));
+        when(contactService.areAcceptedContacts("user-1-id", "user-2-id")).thenReturn(true);
         when(conversationRepository.findByParticipantKey(anyString())).thenReturn(Optional.empty());
         when(conversationRepository.save(any(Conversation.class))).thenAnswer(invocation -> {
             Conversation c = invocation.getArgument(0);
@@ -97,6 +101,7 @@ class ConversationServiceTest {
     @DisplayName("Should return existing conversation if one already exists (idempotent / duplicate prevention)")
     void shouldReturnExistingConversation() {
         when(userRepository.findById("user-2-id")).thenReturn(Optional.of(user2));
+        when(contactService.areAcceptedContacts("user-1-id", "user-2-id")).thenReturn(true);
         when(conversationRepository.findByParticipantKey(anyString())).thenReturn(Optional.of(sampleConversation));
 
         ConversationResponse response = conversationService.getOrCreateConversation("user-1-id", "user-2-id");
@@ -132,6 +137,7 @@ class ConversationServiceTest {
     @DisplayName("Should handle concurrent creation race condition gracefully")
     void shouldHandleConcurrentDuplicateKeyException() {
         when(userRepository.findById("user-2-id")).thenReturn(Optional.of(user2));
+        when(contactService.areAcceptedContacts("user-1-id", "user-2-id")).thenReturn(true);
         when(conversationRepository.findByParticipantKey(anyString()))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(sampleConversation));
@@ -148,6 +154,7 @@ class ConversationServiceTest {
     void shouldListUserConversations() {
         when(conversationRepository.findByParticipantIdsContainingOrderByUpdatedAtDesc("user-1-id"))
                 .thenReturn(List.of(sampleConversation));
+        when(contactService.getAcceptedContactIds("user-1-id")).thenReturn(Set.of("user-2-id"));
         when(userRepository.findAllById(anySet())).thenReturn(List.of(user2));
 
         List<ConversationResponse> list = conversationService.getUserConversations("user-1-id");
@@ -171,11 +178,75 @@ class ConversationServiceTest {
     @DisplayName("Should allow participant to get conversation by id")
     void shouldAllowParticipantToGetConversation() {
         when(conversationRepository.findById("conv-123")).thenReturn(Optional.of(sampleConversation));
+        when(contactService.areAcceptedContacts("user-1-id", "user-2-id")).thenReturn(true);
         when(userRepository.findById("user-2-id")).thenReturn(Optional.of(user2));
 
         ConversationResponse response = conversationService.getConversationById("conv-123", "user-1-id");
 
         assertNotNull(response);
         assertEquals("conv-123", response.getId());
+    }
+
+    @Test
+    @DisplayName("Should deny conversation creation when no accepted contact exists (none/pending/declined/removed)")
+    void shouldDenyConversationCreationWithoutAcceptedContact() {
+        when(userRepository.findById("user-2-id")).thenReturn(Optional.of(user2));
+        when(contactService.areAcceptedContacts("user-1-id", "user-2-id")).thenReturn(false);
+
+        AccessDeniedException ex = assertThrows(AccessDeniedException.class, () ->
+                conversationService.getOrCreateConversation("user-1-id", "user-2-id")
+        );
+
+        assertTrue(ex.getMessage().contains("accepted contacts"));
+        verify(conversationRepository, never()).save(any(Conversation.class));
+    }
+
+    @Test
+    @DisplayName("Should hide conversations whose counterpart is not an accepted contact")
+    void shouldHideConversationsWithoutAcceptedContact() {
+        when(conversationRepository.findByParticipantIdsContainingOrderByUpdatedAtDesc("user-1-id"))
+                .thenReturn(List.of(sampleConversation));
+        when(contactService.getAcceptedContactIds("user-1-id")).thenReturn(Set.of("someone-else"));
+
+        List<ConversationResponse> list = conversationService.getUserConversations("user-1-id");
+
+        assertTrue(list.isEmpty());
+        verify(userRepository, never()).findAllById(anySet());
+    }
+
+    @Test
+    @DisplayName("Should return no conversations when the user has no accepted contacts")
+    void shouldReturnNoConversationsWithoutAcceptedContacts() {
+        when(conversationRepository.findByParticipantIdsContainingOrderByUpdatedAtDesc("user-1-id"))
+                .thenReturn(List.of(sampleConversation));
+        when(contactService.getAcceptedContactIds("user-1-id")).thenReturn(Set.of());
+
+        List<ConversationResponse> list = conversationService.getUserConversations("user-1-id");
+
+        assertTrue(list.isEmpty());
+    }
+
+    @Test
+    @DisplayName("Should revoke access to an existing conversation after the contact is removed")
+    void shouldRevokeAccessAfterContactRemoval() {
+        when(conversationRepository.findById("conv-123")).thenReturn(Optional.of(sampleConversation));
+        when(contactService.areAcceptedContacts("user-1-id", "user-2-id")).thenReturn(false);
+
+        AccessDeniedException ex = assertThrows(AccessDeniedException.class, () ->
+                conversationService.getConversationById("conv-123", "user-1-id")
+        );
+
+        assertTrue(ex.getMessage().contains("accepted contacts"));
+    }
+
+    @Test
+    @DisplayName("Should deny access to an existing conversation when the request is still pending")
+    void shouldDenyAccessWhileRequestIsPending() {
+        when(conversationRepository.findById("conv-123")).thenReturn(Optional.of(sampleConversation));
+        when(contactService.areAcceptedContacts("user-1-id", "user-2-id")).thenReturn(false);
+
+        assertThrows(AccessDeniedException.class, () ->
+                conversationService.getConversationAndValidateParticipant("conv-123", "user-1-id")
+        );
     }
 }

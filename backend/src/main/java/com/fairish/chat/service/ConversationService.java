@@ -25,10 +25,14 @@ public class ConversationService {
 
     private final ConversationRepository conversationRepository;
     private final UserRepository userRepository;
+    private final ContactService contactService;
 
-    public ConversationService(ConversationRepository conversationRepository, UserRepository userRepository) {
+    public ConversationService(ConversationRepository conversationRepository,
+                               UserRepository userRepository,
+                               ContactService contactService) {
         this.conversationRepository = conversationRepository;
         this.userRepository = userRepository;
+        this.contactService = contactService;
     }
 
     /**
@@ -49,6 +53,8 @@ public class ConversationService {
         // Validate that recipient exists
         User recipient = userRepository.findById(trimmedRecipientId)
                 .orElseThrow(() -> new ResourceNotFoundException("Recipient user not found with id: " + trimmedRecipientId));
+
+        requireAcceptedContact(currentUserId, trimmedRecipientId);
 
         String participantKey = Conversation.computeParticipantKey(currentUserId, trimmedRecipientId);
 
@@ -82,7 +88,11 @@ public class ConversationService {
     }
 
     /**
-     * Lists all conversations for the authenticated user, ordered by most recent activity.
+     * Lists the conversations with accepted contacts only, ordered by most recent activity.
+     *
+     * <p>Conversations whose counterpart is not (or no longer) an accepted contact
+     * are omitted rather than deleted; accepting the contact again restores access
+     * to the preserved history.</p>
      */
     @Transactional(readOnly = true)
     public List<ConversationResponse> getUserConversations(String currentUserId) {
@@ -91,8 +101,23 @@ public class ConversationService {
             return Collections.emptyList();
         }
 
+        Set<String> acceptedContactIds = contactService.getAcceptedContactIds(currentUserId);
+        if (acceptedContactIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<Conversation> visibleConversations = conversations.stream()
+                .filter(c -> {
+                    String otherId = c.getOtherParticipantId(currentUserId);
+                    return otherId != null && acceptedContactIds.contains(otherId);
+                })
+                .collect(Collectors.toList());
+        if (visibleConversations.isEmpty()) {
+            return Collections.emptyList();
+        }
+
         // Collect other user IDs for batch loading
-        Set<String> otherUserIds = conversations.stream()
+        Set<String> otherUserIds = visibleConversations.stream()
                 .map(c -> c.getOtherParticipantId(currentUserId))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
@@ -100,7 +125,7 @@ public class ConversationService {
         Map<String, User> userMap = userRepository.findAllById(otherUserIds).stream()
                 .collect(Collectors.toMap(User::getId, u -> u));
 
-        return conversations.stream()
+        return visibleConversations.stream()
                 .map(c -> {
                     String otherId = c.getOtherParticipantId(currentUserId);
                     User otherUser = otherId != null ? userMap.get(otherId) : null;
@@ -121,7 +146,12 @@ public class ConversationService {
     }
 
     /**
-     * Validates that the conversation exists and that currentUserId is one of the participants.
+     * Validates that the conversation exists, that currentUserId is one of the
+     * participants, and that both participants are still accepted contacts.
+     *
+     * <p>This is the single chat authorization primitive shared by REST history,
+     * REST message sending and the STOMP subscription/send guards, so the
+     * contact requirement cannot be bypassed through a different entry point.</p>
      */
     public Conversation getConversationAndValidateParticipant(String conversationId, String currentUserId) {
         Conversation conversation = conversationRepository.findById(conversationId)
@@ -132,7 +162,22 @@ public class ConversationService {
             throw new AccessDeniedException("You are not a participant in this conversation");
         }
 
+        String otherParticipantId = conversation.getOtherParticipantId(currentUserId);
+        if (otherParticipantId == null || !contactService.areAcceptedContacts(currentUserId, otherParticipantId)) {
+            log.warn("User [{}] attempted to access conversation [{}] without an accepted contact relationship",
+                    currentUserId, conversationId);
+            throw new AccessDeniedException("Chat is only available between accepted contacts");
+        }
+
         return conversation;
+    }
+
+    private void requireAcceptedContact(String currentUserId, String otherUserId) {
+        if (!contactService.areAcceptedContacts(currentUserId, otherUserId)) {
+            log.warn("User [{}] attempted to chat with [{}] without an accepted contact relationship",
+                    currentUserId, otherUserId);
+            throw new AccessDeniedException("Chat is only available between accepted contacts");
+        }
     }
 
     private ConversationResponse mapToResponse(Conversation conversation, String currentUserId, User otherUser) {

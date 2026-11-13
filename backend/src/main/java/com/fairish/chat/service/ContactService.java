@@ -216,6 +216,24 @@ public class ContactService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Returns the IDs of every user with whom {@code currentUserId} has an
+     * accepted contact relationship. Used to filter chat resources without
+     * loading full contact projections.
+     */
+    @Transactional(readOnly = true)
+    public Set<String> getAcceptedContactIds(String currentUserId) {
+        if (!StringUtils.hasText(currentUserId)) {
+            return Set.of();
+        }
+        return contactRequestRepository
+                .findByStatusAndParticipant(ContactStatus.ACCEPTED, currentUserId)
+                .stream()
+                .map(request -> request.getOtherParticipantId(currentUserId))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+    }
+
     @Transactional
     public void removeContact(String currentUserId, String otherUserId) {
         if (!StringUtils.hasText(otherUserId)) {

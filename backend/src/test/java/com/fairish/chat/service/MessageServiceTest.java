@@ -172,4 +172,28 @@ class MessageServiceTest {
         );
         verifyNoInteractions(messageRepository);
     }
+
+    @Test
+    @DisplayName("Should reject sending when the contact relationship is no longer accepted")
+    void shouldRejectSendingWhenContactPolicyDenies() {
+        when(conversationService.getConversationAndValidateParticipant("conv-123", "user-1"))
+                .thenThrow(new AccessDeniedException("Chat is only available between accepted contacts"));
+
+        assertThrows(AccessDeniedException.class, () ->
+                messageService.sendMessage("conv-123", "user-1", new SendMessageRequest("Hello"))
+        );
+        verifyNoInteractions(messageRepository, messagingTemplate);
+    }
+
+    @Test
+    @DisplayName("Should reject history when the contact relationship is no longer accepted")
+    void shouldRejectHistoryWhenContactPolicyDenies() {
+        when(conversationService.getConversationAndValidateParticipant("conv-123", "user-1"))
+                .thenThrow(new AccessDeniedException("Chat is only available between accepted contacts"));
+
+        assertThrows(AccessDeniedException.class, () ->
+                messageService.getMessageHistory("conv-123", "user-1", 0, 20)
+        );
+        verifyNoInteractions(messageRepository);
+    }
 }

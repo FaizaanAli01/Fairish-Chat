@@ -249,4 +249,42 @@ class WebSocketAuthInterceptorTest {
         );
         verifyNoInteractions(conversationService);
     }
+
+    @Test
+    @DisplayName("SUBSCRIBE should be denied after the contact relationship is removed")
+    void shouldDenySubscriptionAfterContactRemoval() {
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
+        accessor.setLeaveMutable(true);
+        accessor.setDestination("/topic/conversations/conv-123");
+        UsernamePasswordAuthenticationToken auth =
+                new UsernamePasswordAuthenticationToken(testUserPrincipal, null, testUserPrincipal.getAuthorities());
+        accessor.setUser(auth);
+        Message<byte[]> message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+
+        when(conversationService.getConversationAndValidateParticipant("conv-123", "user-123"))
+                .thenThrow(new AccessDeniedException("Chat is only available between accepted contacts"));
+
+        assertThrows(AccessDeniedException.class, () ->
+                interceptor.preSend(message, messageChannel)
+        );
+    }
+
+    @Test
+    @DisplayName("SEND should be denied after the contact relationship is removed")
+    void shouldDenySendAfterContactRemoval() {
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SEND);
+        accessor.setLeaveMutable(true);
+        accessor.setDestination("/app/conversations/conv-123/sendMessage");
+        UsernamePasswordAuthenticationToken auth =
+                new UsernamePasswordAuthenticationToken(testUserPrincipal, null, testUserPrincipal.getAuthorities());
+        accessor.setUser(auth);
+        Message<byte[]> message = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+
+        when(conversationService.getConversationAndValidateParticipant("conv-123", "user-123"))
+                .thenThrow(new AccessDeniedException("Chat is only available between accepted contacts"));
+
+        assertThrows(AccessDeniedException.class, () ->
+                interceptor.preSend(message, messageChannel)
+        );
+    }
 }
