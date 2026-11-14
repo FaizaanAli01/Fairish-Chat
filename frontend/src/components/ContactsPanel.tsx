@@ -11,6 +11,7 @@ import {
   Inbox,
   Send as SendIcon,
   UserCheck,
+  Copy,
 } from 'lucide-react';
 import { contactApi } from '../api/contactApi';
 import { userApi } from '../api/userApi';
@@ -28,6 +29,10 @@ interface ContactsPanelProps {
 
 const errorMessage = (err: any, fallback: string): string =>
   err?.response?.data?.message || fallback;
+
+/** Shows a compact form of a 24-hex User ID without altering the real value. */
+const shortenUserId = (id: string): string =>
+  id.length > 14 ? `${id.slice(0, 6)}...${id.slice(-6)}` : id;
 
 /**
  * Contact management for the sidebar: search by Fairish User ID or username,
@@ -53,6 +58,13 @@ export const ContactsPanel: React.FC<ContactsPanelProps> = ({
   const [searchResults, setSearchResults] = useState<PublicUser[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [copiedUserId, setCopiedUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!copiedUserId) return;
+    const timeout = window.setTimeout(() => setCopiedUserId(null), 2000);
+    return () => window.clearTimeout(timeout);
+  }, [copiedUserId]);
 
   const loadContacts = useCallback(async () => {
     setIsLoading(true);
@@ -131,6 +143,15 @@ export const ContactsPanel: React.FC<ContactsPanelProps> = ({
     }
   };
 
+  const handleCopyUserId = async (userId: string) => {
+    try {
+      await navigator.clipboard.writeText(userId);
+      setCopiedUserId(userId);
+    } catch {
+      // Clipboard access can be denied by the browser; leave the UI unchanged.
+    }
+  };
+
   const handleSendRequest = (user: PublicUser) =>
     runAction(`send:${user.id}`, () => contactApi.sendRequest(user.id).then(() => undefined),
       'Failed to send contact request.');
@@ -204,7 +225,7 @@ export const ContactsPanel: React.FC<ContactsPanelProps> = ({
           />
         </div>
         <p className="mt-1.5 px-1 text-[10px] text-content-muted">
-          Use the exact 24-character User ID shared by your contact.
+          Search by username, or paste the exact 24-character User ID shared by your contact.
         </p>
       </div>
 
@@ -242,9 +263,30 @@ export const ContactsPanel: React.FC<ContactsPanelProps> = ({
                     <span className="font-semibold text-xs sm:text-sm text-content-primary truncate block">
                       {user.username}
                     </span>
-                    <span className="text-[10px] text-content-muted font-mono truncate block">
-                      {user.id}
-                    </span>
+                    <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
+                      {copiedUserId === user.id ? (
+                        <span role="status" className="truncate text-[10px] text-violet-lavender">
+                          User ID copied
+                        </span>
+                      ) : (
+                        <span className="truncate font-mono text-[10px] text-content-muted">
+                          {shortenUserId(user.id)}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleCopyUserId(user.id)}
+                        title="Copy User ID"
+                        aria-label="Copy User ID"
+                        className="flex-shrink-0 rounded p-0.5 text-content-muted transition-colors hover:bg-violet-primary/10 hover:text-violet-lavender"
+                      >
+                        {copiedUserId === user.id ? (
+                          <Check className="h-3 w-3" />
+                        ) : (
+                          <Copy className="h-3 w-3" />
+                        )}
+                      </button>
+                    </div>
                   </div>
                   {renderSearchAction(user)}
                 </div>
@@ -336,7 +378,7 @@ export const ContactsPanel: React.FC<ContactsPanelProps> = ({
                       </span>
                       <span className="inline-flex items-center space-x-1 text-[10px] text-status-warning">
                         <Clock className="w-3 h-3" />
-                        <span>Awaiting response</span>
+                        <span>Requested</span>
                       </span>
                     </div>
                     <button

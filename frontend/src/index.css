@@ -48,6 +48,30 @@
   }
 }
 
+@layer components {
+  /*
+   * Fairish Chat wordmark.
+   * Upper half stays white; the lower half flows into a slightly deeper,
+   * soft lavender tied to the app's primary violet.
+   */
+  .brand-wordmark {
+    background-image: linear-gradient(
+      to bottom,
+      #FFFFFF 0%,
+      #FFFFFF 50%,
+      #E2D5FF 58%,
+      #B79CFF 74%,
+      #8B5CF6 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+}
+
 @layer utilities {
   /* Subtle violet glow effects for active / focused elements */
   .glow-violet {

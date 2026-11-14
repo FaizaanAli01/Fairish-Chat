@@ -316,8 +316,9 @@ legacy profile-image URLs.
 | Method | Endpoint | Description |
 |---|---|---|
 | `POST` | `/api/conversations` | Create or return a conversation (`{ "recipientId": "..." }`) → `201`; requires accepted contact |
-| `GET` | `/api/conversations` | Conversations with accepted contacts only |
+| `GET` | `/api/conversations` | Conversations with accepted contacts only; each includes the caller's `unreadCount` |
 | `GET` | `/api/conversations/{id}` | Conversation details; requires accepted contact |
+| `POST` | `/api/conversations/{id}/read` | Reset the caller's unread count to zero and broadcast the update over STOMP |
 | `GET` | `/api/conversations/{id}/messages?page=0&size=20` | Paginated history, newest first; `size` is clamped to 1–100 |
 | `POST` | `/api/conversations/{id}/messages` | Send message (`{ "content": "..." }`, 1–2000 characters) → `201` |
 
@@ -352,6 +353,7 @@ Subscribe and send:
 | Frame | Destination | Notes |
 |---|---|---|
 | `SUBSCRIBE` | `/topic/conversations/{conversationId}` | Authorized only for participants who are accepted contacts |
+| `SUBSCRIBE` | `/user/queue/unread` | Private per-session queue receiving `{ "conversationId", "unreadCount" }` updates |
 | `SEND` | `/app/conversations/{conversationId}/sendMessage` | Body: `{ "content": "..." }` |
 | `SEND` | `/app/chat.sendMessage` | Body: `{ "conversationId": "...", "content": "..." }` |
 

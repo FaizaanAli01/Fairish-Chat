@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { conversationApi } from '../api/conversationApi';
 import { messageApi } from '../api/messageApi';
 import { websocketService } from '../api/websocketService';
-import { Conversation } from '../types/conversation';
+import { Conversation, UnreadCountUpdate } from '../types/conversation';
 import { Message } from '../types/message';
 import { PublicUser } from '../types/user';
 import { LoadingSpinner } from '../components/LoadingSpinner';
@@ -127,6 +127,23 @@ export const DashboardPage: React.FC = () => {
     };
   }, [subscribedConversationIdsKey, handleIncomingMessage]);
 
+  // Optimistically clear the badge, then persist the read state. The backend
+  // pushes the same reset to every session of this user.
+  const markConversationRead = useCallback(async (conversationId: string) => {
+    setConversations((prev) =>
+      prev.map((c) => (c.id === conversationId ? { ...c, unreadCount: 0 } : c))
+    );
+    setSelectedConversation((prev) =>
+      prev && prev.id === conversationId ? { ...prev, unreadCount: 0 } : prev
+    );
+
+    try {
+      await conversationApi.markAsRead(conversationId);
+    } catch (err) {
+      console.error('Failed to mark conversation as read:', err);
+    }
+  }, []);
+
   // Load conversations list
   const fetchConversations = useCallback(async () => {
     setIsLoadingConversations(true);
@@ -141,7 +158,12 @@ export const DashboardPage: React.FC = () => {
       if (selectedConversationRef.current) {
         const updated = data.find((c) => c.id === selectedConversationRef.current?.id);
         if (updated) {
-          setSelectedConversation(updated);
+          // An open conversation is being viewed, so its badge must stay at
+          // zero even if a refresh briefly returns a stale count.
+          setSelectedConversation({ ...updated, unreadCount: 0 });
+          if ((updated.unreadCount ?? 0) > 0) {
+            markConversationRead(updated.id);
+          }
         } else {
           setSelectedConversation(null);
           setMessages([]);
@@ -155,11 +177,42 @@ export const DashboardPage: React.FC = () => {
     } finally {
       setIsLoadingConversations(false);
     }
-  }, []);
+  }, [markConversationRead]);
 
   useEffect(() => {
     fetchConversations();
   }, [fetchConversations]);
+
+  // Re-sync persisted unread state after a reconnect, since messages may have
+  // been sent while the socket was down.
+  useEffect(() => {
+    return websocketService.onConnect(() => {
+      fetchConversations();
+    });
+  }, [fetchConversations]);
+
+  // Authoritative unread updates for every conversation of this user.
+  const handleUnreadUpdate = useCallback((update: UnreadCountUpdate) => {
+    const isActive = selectedConversationRef.current?.id === update.conversationId;
+    const unreadCount = isActive ? 0 : Math.max(update.unreadCount, 0);
+
+    setConversations((prev) =>
+      prev.map((c) => (c.id === update.conversationId ? { ...c, unreadCount } : c))
+    );
+    setSelectedConversation((prev) =>
+      prev && prev.id === update.conversationId ? { ...prev, unreadCount } : prev
+    );
+
+    // A message can arrive while its conversation is open; treat it as viewed
+    // and reset the persisted count for all of this user's sessions.
+    if (isActive && update.unreadCount > 0) {
+      markConversationRead(update.conversationId);
+    }
+  }, [markConversationRead]);
+
+  useEffect(() => {
+    return websocketService.subscribeToUnread(handleUnreadUpdate);
+  }, [handleUnreadUpdate]);
 
   // Contact mutations (accept, remove, ...) change who may chat; reload the
   // conversation list so the sidebar and open chat reflect the new access.
@@ -189,7 +242,8 @@ export const DashboardPage: React.FC = () => {
 
   // When selected conversation changes
   const handleSelectConversation = (conversation: Conversation) => {
-    setSelectedConversation(conversation);
+    setSelectedConversation({ ...conversation, unreadCount: 0 });
+    markConversationRead(conversation.id);
     loadConversationMessages(conversation.id);
   };
 
@@ -201,6 +255,7 @@ export const DashboardPage: React.FC = () => {
       const enriched: Conversation = {
         ...conversation,
         otherUser: conversation.otherUser || targetUser,
+        unreadCount: 0,
       };
 
       setConversations((prev) => {
@@ -212,6 +267,7 @@ export const DashboardPage: React.FC = () => {
       });
 
       setSelectedConversation(enriched);
+      markConversationRead(enriched.id);
       loadConversationMessages(enriched.id);
     } catch (err: any) {
       console.error('Failed to start conversation:', err);
@@ -385,9 +441,11 @@ export const DashboardPage: React.FC = () => {
                         Contact
                       </span>
                     </h3>
-                    <p className="text-xs text-content-secondary truncate mt-0.5">
-                      {otherUser?.bio || 'Direct Conversation'}
-                    </p>
+                    {otherUser?.bio?.trim() && (
+                      <p className="text-xs text-content-secondary truncate mt-0.5">
+                        {otherUser.bio}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -527,46 +585,23 @@ export const DashboardPage: React.FC = () => {
             </div>
           ) : (
             /* Welcome / Empty Selection Screen (desktop / tablet) */
-            <div className="flex-1 flex flex-col items-center justify-center p-6 sm:p-8 text-center max-w-lg mx-auto space-y-6">
-              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-3xl bg-dark-panel border border-dark-border flex items-center justify-center shadow-violet-md relative">
-                <div className="absolute inset-0 bg-violet-primary/10 rounded-3xl blur-lg pointer-events-none" />
-                <MessageSquare className="w-8 h-8 sm:w-10 sm:h-10 text-violet-primary relative z-10" />
-              </div>
-
-              <div className="space-y-2">
-                <h2 className="text-xl sm:text-2xl font-bold text-content-primary tracking-tight">
-                  Welcome to Fairish Chat, {user?.username}!
-                </h2>
-                <p className="text-content-secondary text-xs sm:text-sm leading-relaxed max-w-md mx-auto">
-                  Select an active chat from the sidebar or open <strong className="text-content-primary">Contacts</strong> to add someone. Chat unlocks once they accept your request.
-                </p>
-              </div>
-
-              {/* Status card */}
-              <div className="w-full bg-dark-panel border border-dark-border rounded-2xl p-5 text-left space-y-3.5 shadow-sm">
-                <div className="flex items-center space-x-2.5 text-content-primary font-semibold text-xs sm:text-sm">
-                  <div className="w-2 h-2 rounded-full bg-status-success animate-pulse" />
-                  <span>Real-Time Messaging Platform</span>
-                </div>
-                <div className="space-y-2 text-xs text-content-secondary">
-                  <p className="flex items-center space-x-2">
-                    <span className="text-violet-lavender font-bold">•</span>
-                    <span>Direct 1-to-1 conversations between accepted contacts</span>
-                  </p>
-                  <p className="flex items-center space-x-2">
-                    <span className="text-violet-lavender font-bold">•</span>
-                    <span>Instant real-time message delivery over STOMP WebSocket</span>
-                  </p>
-                  <p className="flex items-center space-x-2">
-                    <span className="text-violet-lavender font-bold">•</span>
-                    <span>Persistent chronological message history in MongoDB Atlas</span>
-                  </p>
-                  <p className="flex items-center space-x-2">
-                    <span className="text-violet-lavender font-bold">•</span>
-                    <span>Secured with stateless JWT authentication and BCrypt password hashing</span>
-                  </p>
+            <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 sm:px-8 text-center max-w-lg mx-auto">
+              <div className="relative mb-7">
+                <div className="absolute inset-0 rounded-3xl bg-violet-primary/20 blur-2xl scale-125 pointer-events-none" />
+                <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-3xl bg-dark-panel border border-violet-primary/20 flex items-center justify-center shadow-violet-md">
+                  <MessageSquare className="w-8 h-8 sm:w-10 sm:h-10 text-violet-primary" />
                 </div>
               </div>
+
+              <h2 className="text-2xl sm:text-3xl font-bold text-content-primary tracking-tight">
+                Welcome to Fairish Chat!
+              </h2>
+              <p className="mt-3 text-sm sm:text-base text-content-secondary leading-relaxed max-w-sm">
+                Secure direct 1-to-1 conversations between accepted contacts.
+              </p>
+              <p className="mt-5 text-xs sm:text-sm text-content-muted leading-relaxed max-w-xs">
+                Select a conversation or connect with someone to start chatting.
+              </p>
             </div>
           )}
         </main>

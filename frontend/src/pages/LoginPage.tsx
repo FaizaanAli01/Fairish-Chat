@@ -61,7 +61,7 @@ export const LoginPage: React.FC = () => {
           </div>
           <div className="space-y-1">
             <h1 className="text-2xl sm:text-3xl font-bold text-content-primary tracking-tight">
-              Sign in to Fairish<span className="text-violet-lavender ml-1">Chat</span>
+              Sign in to <span className="brand-wordmark">Fairish<span className="ml-1">Chat</span></span>
             </h1>
             <p className="text-xs sm:text-sm text-content-secondary">
               Enter your credentials to access your direct message feed

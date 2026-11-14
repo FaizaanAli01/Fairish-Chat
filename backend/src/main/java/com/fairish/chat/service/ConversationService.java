@@ -26,13 +26,16 @@ public class ConversationService {
     private final ConversationRepository conversationRepository;
     private final UserRepository userRepository;
     private final ContactService contactService;
+    private final ConversationUnreadService conversationUnreadService;
 
     public ConversationService(ConversationRepository conversationRepository,
                                UserRepository userRepository,
-                               ContactService contactService) {
+                               ContactService contactService,
+                               ConversationUnreadService conversationUnreadService) {
         this.conversationRepository = conversationRepository;
         this.userRepository = userRepository;
         this.contactService = contactService;
+        this.conversationUnreadService = conversationUnreadService;
     }
 
     /**
@@ -146,6 +149,27 @@ public class ConversationService {
     }
 
     /**
+     * Marks the conversation as viewed for the current user by resetting only
+     * their unread counter. The contact/participant checks are the same as all
+     * other conversation access paths.
+     */
+    @Transactional
+    public ConversationResponse markConversationRead(String conversationId, String currentUserId) {
+        Conversation conversation = getConversationAndValidateParticipant(conversationId, currentUserId);
+        Conversation updated = conversationUnreadService.resetUnread(conversationId, currentUserId);
+        Conversation effective = updated != null ? updated : conversation;
+
+        String otherId = effective.getOtherParticipantId(currentUserId);
+        User otherUser = otherId != null ? userRepository.findById(otherId).orElse(null) : null;
+
+        // Keep every open session of the same user in sync (including the one
+        // that did not initiate the read action).
+        conversationUnreadService.notifyUnreadCount(currentUserId, conversationId, 0);
+
+        return mapToResponse(effective, currentUserId, otherUser);
+    }
+
+    /**
      * Validates that the conversation exists, that currentUserId is one of the
      * participants, and that both participants are still accepted contacts.
      *
@@ -190,6 +214,7 @@ public class ConversationService {
                 .lastMessageText(conversation.getLastMessageText())
                 .lastMessageSenderId(conversation.getLastMessageSenderId())
                 .lastMessageAt(conversation.getLastMessageAt())
+                .unreadCount(conversation.getUnreadCount(currentUserId))
                 .createdAt(conversation.getCreatedAt())
                 .updatedAt(conversation.getUpdatedAt())
                 .build();

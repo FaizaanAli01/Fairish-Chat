@@ -32,6 +32,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setPendingRequestCount(count);
   }, []);
 
+  const formatUnreadCount = (count: number) => (count > 99 ? '99+' : String(count));
+
   const formatMessageTime = (dateStr?: string | null) => {
     if (!dateStr) return '';
     const date = new Date(dateStr);
@@ -136,6 +138,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               const otherUser = c.otherUser;
               const isSelected = selectedConversationId === c.id;
               const hasLastMessage = Boolean(c.lastMessageText);
+              const unreadCount = c.unreadCount ?? 0;
 
               return (
                 <button
@@ -168,9 +171,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         </span>
                       )}
                     </div>
-                    <p className={`text-xs truncate ${hasLastMessage ? 'text-content-secondary' : 'text-content-muted italic'}`}>
-                      {c.lastMessageText || 'No messages yet'}
-                    </p>
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <p className={`text-xs truncate flex-1 min-w-0 ${hasLastMessage ? 'text-content-secondary' : 'text-content-muted italic'}`}>
+                        {c.lastMessageText || 'No messages yet'}
+                      </p>
+                      {unreadCount > 0 && (
+                        <span
+                          className={`flex-shrink-0 min-w-[1.25rem] h-5 px-1.5 rounded-full bg-violet-primary text-white text-[10px] font-bold flex items-center justify-center shadow-violet-sm ${
+                            isSelected ? 'ring-2 ring-violet-primary/30' : ''
+                          }`}
+                          aria-label={`${unreadCount} unread ${unreadCount === 1 ? 'message' : 'messages'}`}
+                        >
+                          {formatUnreadCount(unreadCount)}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </button>
               );

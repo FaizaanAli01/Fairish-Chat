@@ -11,7 +11,9 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 @Document(collection = "conversations")
@@ -40,6 +42,13 @@ public class Conversation {
     private String lastMessageSenderId;
     private Instant lastMessageAt;
 
+    /**
+     * Unread message count per participant user ID. Only the recipient of a
+     * message is incremented; opening the conversation resets the current
+     * user's entry. Existing conversations without this field read as zero.
+     */
+    private Map<String, Integer> unreadCounts = new HashMap<>();
+
     @CreatedDate
     private Instant createdAt;
 
@@ -51,13 +60,14 @@ public class Conversation {
 
     public Conversation(String id, List<String> participantIds, String participantKey,
                         String lastMessageText, String lastMessageSenderId, Instant lastMessageAt,
-                        Instant createdAt, Instant updatedAt) {
+                        Map<String, Integer> unreadCounts, Instant createdAt, Instant updatedAt) {
         this.id = id;
         this.participantIds = participantIds != null ? participantIds : new ArrayList<>();
         this.participantKey = participantKey;
         this.lastMessageText = lastMessageText;
         this.lastMessageSenderId = lastMessageSenderId;
         this.lastMessageAt = lastMessageAt;
+        this.unreadCounts = unreadCounts != null ? unreadCounts : new HashMap<>();
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
@@ -104,6 +114,18 @@ public class Conversation {
         return participantIds.get(0).equals(currentUserId)
                 ? participantIds.get(1)
                 : participantIds.get(0);
+    }
+
+    /**
+     * Returns the persisted unread count for one participant. Missing entries
+     * (including conversations created before unread support) are treated as 0.
+     */
+    public int getUnreadCount(String userId) {
+        if (userId == null || unreadCounts == null) {
+            return 0;
+        }
+        Integer count = unreadCounts.get(userId);
+        return count != null && count > 0 ? count : 0;
     }
 
     // Getters and Setters
@@ -156,6 +178,14 @@ public class Conversation {
         this.lastMessageAt = lastMessageAt;
     }
 
+    public Map<String, Integer> getUnreadCounts() {
+        return unreadCounts;
+    }
+
+    public void setUnreadCounts(Map<String, Integer> unreadCounts) {
+        this.unreadCounts = unreadCounts != null ? unreadCounts : new HashMap<>();
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
@@ -192,6 +222,7 @@ public class Conversation {
         private String lastMessageText;
         private String lastMessageSenderId;
         private Instant lastMessageAt;
+        private Map<String, Integer> unreadCounts = new HashMap<>();
         private Instant createdAt;
         private Instant updatedAt;
 
@@ -225,6 +256,11 @@ public class Conversation {
             return this;
         }
 
+        public ConversationBuilder unreadCounts(Map<String, Integer> unreadCounts) {
+            this.unreadCounts = unreadCounts;
+            return this;
+        }
+
         public ConversationBuilder createdAt(Instant createdAt) {
             this.createdAt = createdAt;
             return this;
@@ -237,7 +273,8 @@ public class Conversation {
 
         public Conversation build() {
             return new Conversation(id, participantIds, participantKey,
-                    lastMessageText, lastMessageSenderId, lastMessageAt, createdAt, updatedAt);
+                    lastMessageText, lastMessageSenderId, lastMessageAt,
+                    unreadCounts, createdAt, updatedAt);
         }
     }
 }

@@ -5,7 +5,6 @@ import com.fairish.chat.dto.PaginatedResponse;
 import com.fairish.chat.dto.SendMessageRequest;
 import com.fairish.chat.model.Conversation;
 import com.fairish.chat.model.Message;
-import com.fairish.chat.repository.ConversationRepository;
 import com.fairish.chat.repository.MessageRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,17 +23,17 @@ public class MessageService {
     private static final Logger log = LoggerFactory.getLogger(MessageService.class);
 
     private final MessageRepository messageRepository;
-    private final ConversationRepository conversationRepository;
     private final ConversationService conversationService;
+    private final ConversationUnreadService conversationUnreadService;
     private final SimpMessagingTemplate messagingTemplate;
 
     public MessageService(MessageRepository messageRepository,
-                          ConversationRepository conversationRepository,
                           ConversationService conversationService,
+                          ConversationUnreadService conversationUnreadService,
                           SimpMessagingTemplate messagingTemplate) {
         this.messageRepository = messageRepository;
-        this.conversationRepository = conversationRepository;
         this.conversationService = conversationService;
+        this.conversationUnreadService = conversationUnreadService;
         this.messagingTemplate = messagingTemplate;
     }
 
@@ -67,12 +66,13 @@ public class MessageService {
 
         Message savedMessage = messageRepository.save(message);
 
-        // Update conversation summary
-        conversation.setLastMessageText(trimmedContent);
-        conversation.setLastMessageSenderId(currentUserId);
-        conversation.setLastMessageAt(now);
-        conversation.setUpdatedAt(now);
-        conversationRepository.save(conversation);
+        String recipientId = conversation.getOtherParticipantId(currentUserId);
+        Conversation updatedConversation = conversationUnreadService.recordMessageAndIncrementUnread(
+                conversationId, currentUserId, recipientId, trimmedContent, now);
+        if (updatedConversation == null) {
+            log.warn("Conversation [{}] disappeared while persisting message [{}]",
+                    conversationId, savedMessage.getId());
+        }
 
         log.info("Persisted message [{}] in conversation [{}] from sender [{}]",
                 savedMessage.getId(), conversationId, currentUserId);
@@ -87,6 +87,15 @@ public class MessageService {
         } catch (Exception ex) {
             log.error("Failed to broadcast message [{}] to conversation [{}]: {}",
                     savedMessage.getId(), conversationId, ex.getMessage(), ex);
+        }
+
+        // Push the server-side count (not a client-side increment) to every
+        // session of the recipient so duplicates and reconnects stay idempotent.
+        if (updatedConversation != null && recipientId != null) {
+            conversationUnreadService.notifyUnreadCount(
+                    recipientId,
+                    conversationId,
+                    updatedConversation.getUnreadCount(recipientId));
         }
 
         return response;

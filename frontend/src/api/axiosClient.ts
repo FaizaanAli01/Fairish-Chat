@@ -3,9 +3,9 @@ import { API_BASE_URL } from '../config/env';
 
 export const axiosClient = axios.create({
   baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  // Do not force a global Content-Type. Axios sets application/json for object
+  // bodies automatically, while FormData must keep its browser-generated
+  // multipart boundary (avatar uploads).
 });
 
 // Request interceptor: Attach JWT Bearer token if present

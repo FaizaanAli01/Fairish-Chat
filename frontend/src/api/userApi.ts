@@ -28,6 +28,12 @@ export const userApi = {
     formData.append('file', file);
 
     const response = await axiosClient.post<User>('/users/me/avatar', formData, {
+      // Explicitly mark the body as multipart. Without this the shared client
+      // previously JSON-stringified FormData, so the backend never received a
+      // multipart request.
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
       onUploadProgress: (event) => {
         if (onProgress && event.total) {
           onProgress(Math.min(100, Math.round((event.loaded * 100) / event.total)));

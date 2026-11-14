@@ -7,6 +7,7 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.multipart.MultipartException;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -38,6 +39,19 @@ class GlobalExceptionHandlerTest {
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
         assertNotNull(response.getBody());
         assertTrue(response.getBody().getMessage().contains("IP address is whitelisted"));
+    }
+
+    @Test
+    @DisplayName("handleMultipartException should explain that uploads need multipart/form-data")
+    void testMultipartFailure() {
+        MultipartException ex = new MultipartException("Current request is not a multipart request");
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/users/me/avatar");
+
+        ResponseEntity<ErrorResponse> response = handler.handleMultipartException(ex, request);
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertTrue(response.getBody().getMessage().contains("multipart/form-data"));
     }
 
     @Test

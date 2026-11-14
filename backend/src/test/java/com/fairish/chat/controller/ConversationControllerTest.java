@@ -80,6 +80,7 @@ class ConversationControllerTest {
                 .id("conv-123")
                 .participantIds(List.of("current-user-id", "other-user-id"))
                 .otherUser(PublicUserResponse.fromUser(otherUser))
+                .unreadCount(4)
                 .createdAt(Instant.now())
                 .updatedAt(Instant.now())
                 .build();
@@ -128,7 +129,8 @@ class ConversationControllerTest {
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].id").value("conv-123"));
+                .andExpect(jsonPath("$[0].id").value("conv-123"))
+                .andExpect(jsonPath("$[0].unreadCount").value(4));
     }
 
     @Test
@@ -153,6 +155,38 @@ class ConversationControllerTest {
 
         mockMvc.perform(get("/api/conversations/conv-123")
                         .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"));
+    }
+
+    @Test
+    @WithMockUser(username = "alice")
+    @DisplayName("POST /api/conversations/{id}/read should reset the authenticated user's unread count")
+    void shouldMarkConversationRead() throws Exception {
+        ConversationResponse readResponse = ConversationResponse.builder()
+                .id("conv-123")
+                .participantIds(List.of("current-user-id", "other-user-id"))
+                .unreadCount(0)
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .build();
+        when(conversationService.markConversationRead("conv-123", "current-user-id"))
+                .thenReturn(readResponse);
+
+        mockMvc.perform(post("/api/conversations/conv-123/read"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("conv-123"))
+                .andExpect(jsonPath("$.unreadCount").value(0));
+    }
+
+    @Test
+    @WithMockUser(username = "alice")
+    @DisplayName("POST /api/conversations/{id}/read should return 403 for non-participants")
+    void shouldRejectMarkingReadForNonParticipant() throws Exception {
+        when(conversationService.markConversationRead("conv-123", "current-user-id"))
+                .thenThrow(new AccessDeniedException("You are not a participant in this conversation"));
+
+        mockMvc.perform(post("/api/conversations/conv-123/read"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error").value("Forbidden"));
     }

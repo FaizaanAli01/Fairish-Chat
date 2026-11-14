@@ -54,6 +54,19 @@ public class ConversationController {
         return ResponseEntity.ok(response);
     }
 
+    /**
+     * Marks the conversation as viewed for the authenticated user by resetting
+     * only that user's unread counter.
+     */
+    @PostMapping("/{id}/read")
+    public ResponseEntity<ConversationResponse> markConversationRead(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable("id") String id) {
+        String currentUserId = extractUserId(userDetails);
+        ConversationResponse response = conversationService.markConversationRead(id, currentUserId);
+        return ResponseEntity.ok(response);
+    }
+
     private String extractUserId(UserDetails userDetails) {
         if (userDetails instanceof UserPrincipal principal) {
             return principal.getId();

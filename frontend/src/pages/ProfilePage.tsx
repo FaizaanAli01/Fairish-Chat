@@ -8,7 +8,6 @@ import {
   Save,
   CheckCircle,
   ArrowLeft,
-  Image as ImageIcon,
   Upload,
   Trash2,
 } from 'lucide-react';
@@ -310,25 +309,6 @@ export const ProfilePage: React.FC = () => {
                 />
               </div>
               <p className="text-[11px] text-content-muted mt-1">Must be unique across all Fairish Chat accounts.</p>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-content-secondary mb-2">
-                Legacy Image URL (Optional)
-              </label>
-              <div className="relative">
-                <ImageIcon className="w-4 h-4 text-content-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="url"
-                  value={profileImage}
-                  onChange={(e) => setProfileImage(e.target.value)}
-                  placeholder="https://example.com/avatar.jpg"
-                  className="w-full pl-10 pr-4 py-2.5 bg-dark-panel border border-dark-border rounded-xl text-xs sm:text-sm text-content-primary placeholder-content-muted focus:outline-none focus:border-violet-primary focus:ring-1 focus:ring-violet-primary transition-all"
-                />
-              </div>
-              <p className="text-[11px] text-content-muted mt-1">
-                Only visible to you. Uploading an avatar replaces this URL.
-              </p>
             </div>
 
             <div>

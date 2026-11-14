@@ -82,7 +82,7 @@ export const RegisterPage: React.FC = () => {
           </div>
           <div className="space-y-1">
             <h1 className="text-2xl sm:text-3xl font-bold text-content-primary tracking-tight">
-              Join Fairish<span className="text-violet-lavender ml-1">Chat</span>
+              Join <span className="brand-wordmark">Fairish<span className="ml-1">Chat</span></span>
             </h1>
             <p className="text-xs sm:text-sm text-content-secondary">
               Create your account to start real-time messaging

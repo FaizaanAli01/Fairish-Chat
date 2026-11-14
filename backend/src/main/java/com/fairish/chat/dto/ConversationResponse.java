@@ -12,6 +12,7 @@ public class ConversationResponse {
     private String lastMessageText;
     private String lastMessageSenderId;
     private Instant lastMessageAt;
+    private int unreadCount;
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -20,13 +21,14 @@ public class ConversationResponse {
 
     public ConversationResponse(String id, List<String> participantIds, PublicUserResponse otherUser,
                                 String lastMessageText, String lastMessageSenderId, Instant lastMessageAt,
-                                Instant createdAt, Instant updatedAt) {
+                                int unreadCount, Instant createdAt, Instant updatedAt) {
         this.id = id;
         this.participantIds = participantIds != null ? participantIds : new ArrayList<>();
         this.otherUser = otherUser;
         this.lastMessageText = lastMessageText;
         this.lastMessageSenderId = lastMessageSenderId;
         this.lastMessageAt = lastMessageAt;
+        this.unreadCount = Math.max(unreadCount, 0);
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
@@ -85,6 +87,14 @@ public class ConversationResponse {
         this.lastMessageAt = lastMessageAt;
     }
 
+    public int getUnreadCount() {
+        return unreadCount;
+    }
+
+    public void setUnreadCount(int unreadCount) {
+        this.unreadCount = Math.max(unreadCount, 0);
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
@@ -108,6 +118,7 @@ public class ConversationResponse {
         private String lastMessageText;
         private String lastMessageSenderId;
         private Instant lastMessageAt;
+        private int unreadCount;
         private Instant createdAt;
         private Instant updatedAt;
 
@@ -141,6 +152,11 @@ public class ConversationResponse {
             return this;
         }
 
+        public ConversationResponseBuilder unreadCount(int unreadCount) {
+            this.unreadCount = unreadCount;
+            return this;
+        }
+
         public ConversationResponseBuilder createdAt(Instant createdAt) {
             this.createdAt = createdAt;
             return this;
@@ -153,7 +169,8 @@ public class ConversationResponse {
 
         public ConversationResponse build() {
             return new ConversationResponse(id, participantIds, otherUser,
-                    lastMessageText, lastMessageSenderId, lastMessageAt, createdAt, updatedAt);
+                    lastMessageText, lastMessageSenderId, lastMessageAt,
+                    unreadCount, createdAt, updatedAt);
         }
     }
 }

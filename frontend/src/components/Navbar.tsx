@@ -31,10 +31,7 @@ export const Navbar: React.FC = () => {
           </div>
           <div className="min-w-0 flex items-center space-x-2">
             <span className="text-base sm:text-lg font-bold text-content-primary tracking-tight truncate block">
-              Fairish<span className="text-violet-lavender ml-1">Chat</span>
-            </span>
-            <span className="hidden sm:inline-flex items-center px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-violet-primary/10 text-violet-lavender border border-violet-primary/20 rounded-full flex-shrink-0">
-              Live
+              <span className="brand-wordmark">Fairish<span className="ml-1">Chat</span></span>
             </span>
           </div>
         </Link>

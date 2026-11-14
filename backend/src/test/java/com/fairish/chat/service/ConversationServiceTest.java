@@ -18,6 +18,7 @@ import org.springframework.security.access.AccessDeniedException;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -36,6 +37,9 @@ class ConversationServiceTest {
 
     @Mock
     private ContactService contactService;
+
+    @Mock
+    private ConversationUnreadService conversationUnreadService;
 
     @InjectMocks
     private ConversationService conversationService;
@@ -162,6 +166,83 @@ class ConversationServiceTest {
         assertEquals(1, list.size());
         assertEquals("conv-123", list.get(0).getId());
         assertEquals("bob", list.get(0).getOtherUser().getUsername());
+    }
+
+    @Test
+    @DisplayName("Should return only the current user's unread count in the conversation list")
+    void shouldReturnUnreadCountForCurrentUser() {
+        Conversation withUnread = Conversation.builder()
+                .id("conv-123")
+                .participantIds(List.of("user-1-id", "user-2-id"))
+                .participantKey(Conversation.computeParticipantKey("user-1-id", "user-2-id"))
+                .unreadCounts(Map.of("user-1-id", 3, "user-2-id", 1))
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .build();
+
+        when(conversationRepository.findByParticipantIdsContainingOrderByUpdatedAtDesc("user-1-id"))
+                .thenReturn(List.of(withUnread));
+        when(conversationRepository.findByParticipantIdsContainingOrderByUpdatedAtDesc("user-2-id"))
+                .thenReturn(List.of(withUnread));
+        when(contactService.getAcceptedContactIds("user-1-id")).thenReturn(Set.of("user-2-id"));
+        when(contactService.getAcceptedContactIds("user-2-id")).thenReturn(Set.of("user-1-id"));
+        when(userRepository.findAllById(anySet())).thenReturn(List.of(user1, user2));
+
+        List<ConversationResponse> forAlice = conversationService.getUserConversations("user-1-id");
+        List<ConversationResponse> forBob = conversationService.getUserConversations("user-2-id");
+
+        assertEquals(3, forAlice.get(0).getUnreadCount());
+        assertEquals(1, forBob.get(0).getUnreadCount());
+    }
+
+    @Test
+    @DisplayName("Should reset only the current user's unread count when the conversation is opened")
+    void shouldResetUnreadWhenConversationIsOpened() {
+        Conversation resetConversation = Conversation.builder()
+                .id("conv-123")
+                .participantIds(List.of("user-1-id", "user-2-id"))
+                .participantKey(Conversation.computeParticipantKey("user-1-id", "user-2-id"))
+                .unreadCounts(Map.of("user-1-id", 0, "user-2-id", 2))
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .build();
+
+        when(conversationRepository.findById("conv-123")).thenReturn(Optional.of(sampleConversation));
+        when(contactService.areAcceptedContacts("user-1-id", "user-2-id")).thenReturn(true);
+        when(conversationUnreadService.resetUnread("conv-123", "user-1-id")).thenReturn(resetConversation);
+        when(userRepository.findById("user-2-id")).thenReturn(Optional.of(user2));
+
+        ConversationResponse response = conversationService.markConversationRead("conv-123", "user-1-id");
+
+        assertEquals(0, response.getUnreadCount());
+        verify(conversationUnreadService).resetUnread("conv-123", "user-1-id");
+        verify(conversationUnreadService).notifyUnreadCount("user-1-id", "conv-123", 0);
+    }
+
+    @Test
+    @DisplayName("Should reject marking a conversation read for non-participants")
+    void shouldRejectMarkingReadForNonParticipant() {
+        when(conversationRepository.findById("conv-123")).thenReturn(Optional.of(sampleConversation));
+
+        assertThrows(AccessDeniedException.class, () ->
+                conversationService.markConversationRead("conv-123", "user-3-id")
+        );
+
+        verify(conversationUnreadService, never()).resetUnread(anyString(), anyString());
+        verify(conversationUnreadService, never()).notifyUnreadCount(anyString(), anyString(), anyInt());
+    }
+
+    @Test
+    @DisplayName("Should reject marking a conversation read after the contact is removed")
+    void shouldRejectMarkingReadWithoutAcceptedContact() {
+        when(conversationRepository.findById("conv-123")).thenReturn(Optional.of(sampleConversation));
+        when(contactService.areAcceptedContacts("user-1-id", "user-2-id")).thenReturn(false);
+
+        assertThrows(AccessDeniedException.class, () ->
+                conversationService.markConversationRead("conv-123", "user-1-id")
+        );
+
+        verify(conversationUnreadService, never()).resetUnread(anyString(), anyString());
     }
 
     @Test

@@ -1,6 +1,7 @@
 import { Client, StompSubscription, IMessage } from '@stomp/stompjs';
 import { WS_URL } from '../config/env';
 import { Message } from '../types/message';
+import { UnreadCountUpdate } from '../types/conversation';
 
 /**
  * Returns the configured WebSocket endpoint URL and appends the JWT token for
@@ -22,6 +23,8 @@ class WebSocketService {
   private currentToken: string | null = null;
   private subscriptions: Map<string, StompSubscription> = new Map();
   private pendingSubscriptions: Map<string, (message: Message) => void> = new Map();
+  private unreadSubscription: StompSubscription | null = null;
+  private unreadCallback: ((update: UnreadCountUpdate) => void) | null = null;
   private connectCallbacks: Set<() => void> = new Set();
   private disconnectCallbacks: Set<() => void> = new Set();
   private errorCallbacks: Set<(error: any) => void> = new Set();
@@ -64,6 +67,7 @@ class WebSocketService {
         this.pendingSubscriptions.forEach((callback, conversationId) => {
           this.doSubscribe(conversationId, callback);
         });
+        this.doSubscribeUnread();
 
         this.connectCallbacks.forEach((cb) => {
           try {
@@ -127,6 +131,50 @@ class WebSocketService {
         this.subscriptions.delete(conversationId);
       }
     };
+  }
+
+  /**
+   * Subscribes to the authenticated user's private unread-count queue. The
+   * backend pushes the authoritative total after every incoming message and
+   * after a read reset, so client-side increments are never required.
+   */
+  public subscribeToUnread(onUpdate: (update: UnreadCountUpdate) => void): () => void {
+    this.unreadCallback = onUpdate;
+    this.doSubscribeUnread();
+
+    return () => {
+      if (this.unreadCallback === onUpdate) {
+        this.unreadCallback = null;
+        this.unsubscribeUnread();
+      }
+    };
+  }
+
+  private doSubscribeUnread(): void {
+    if (!this.client || !this.client.connected || !this.unreadCallback) return;
+
+    this.unsubscribeUnread();
+    try {
+      this.unreadSubscription = this.client.subscribe('/user/queue/unread', (stompMessage: IMessage) => {
+        try {
+          const update: UnreadCountUpdate = JSON.parse(stompMessage.body);
+          this.unreadCallback?.(update);
+        } catch (e) {
+          console.error('[STOMP] Failed to parse unread count update:', e, stompMessage.body);
+        }
+      });
+    } catch (err) {
+      console.error('[STOMP] Failed to subscribe to unread counts:', err);
+    }
+  }
+
+  private unsubscribeUnread(): void {
+    if (this.unreadSubscription) {
+      try {
+        this.unreadSubscription.unsubscribe();
+      } catch {}
+      this.unreadSubscription = null;
+    }
   }
 
   private doSubscribe(conversationId: string, onMessage: (message: Message) => void): void {
@@ -209,6 +257,7 @@ class WebSocketService {
     });
     this.subscriptions.clear();
     this.pendingSubscriptions.clear();
+    this.unsubscribeUnread();
 
     if (this.client) {
       try {

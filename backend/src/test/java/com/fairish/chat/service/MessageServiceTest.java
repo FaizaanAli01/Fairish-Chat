@@ -5,7 +5,6 @@ import com.fairish.chat.dto.PaginatedResponse;
 import com.fairish.chat.dto.SendMessageRequest;
 import com.fairish.chat.model.Conversation;
 import com.fairish.chat.model.Message;
-import com.fairish.chat.repository.ConversationRepository;
 import com.fairish.chat.repository.MessageRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -22,9 +21,13 @@ import org.springframework.security.access.AccessDeniedException;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -34,10 +37,10 @@ class MessageServiceTest {
     private MessageRepository messageRepository;
 
     @Mock
-    private ConversationRepository conversationRepository;
+    private ConversationService conversationService;
 
     @Mock
-    private ConversationService conversationService;
+    private ConversationUnreadService conversationUnreadService;
 
     @Mock
     private SimpMessagingTemplate messagingTemplate;
@@ -70,6 +73,20 @@ class MessageServiceTest {
             return m;
         });
 
+        Conversation updatedConversation = Conversation.builder()
+                .id("conv-123")
+                .participantIds(List.of("user-1", "user-2"))
+                .participantKey("user-1:user-2")
+                .lastMessageText("Hello, World!")
+                .lastMessageSenderId("user-1")
+                .unreadCounts(Map.of("user-2", 1))
+                .createdAt(sampleConversation.getCreatedAt())
+                .updatedAt(Instant.now())
+                .build();
+        when(conversationUnreadService.recordMessageAndIncrementUnread(
+                eq("conv-123"), eq("user-1"), eq("user-2"), eq("Hello, World!"), any(Instant.class)))
+                .thenReturn(updatedConversation);
+
         SendMessageRequest request = new SendMessageRequest("Hello, World!");
         MessageResponse response = messageService.sendMessage("conv-123", "user-1", request);
 
@@ -79,14 +96,48 @@ class MessageServiceTest {
         assertEquals("user-1", response.getSenderId());
         assertEquals("Hello, World!", response.getContent());
 
-        // Verify conversation updated
-        assertEquals("Hello, World!", sampleConversation.getLastMessageText());
-        assertEquals("user-1", sampleConversation.getLastMessageSenderId());
-        assertNotNull(sampleConversation.getLastMessageAt());
-        verify(conversationRepository).save(sampleConversation);
+        // Only the recipient's persisted counter is incremented, atomically with
+        // the conversation summary.
+        verify(conversationUnreadService, times(1)).recordMessageAndIncrementUnread(
+                eq("conv-123"), eq("user-1"), eq("user-2"), eq("Hello, World!"), any(Instant.class));
+        verify(conversationUnreadService, never()).recordMessageAndIncrementUnread(
+                anyString(), anyString(), eq("user-1"), anyString(), any(Instant.class));
 
-        // Verify real-time broadcast to WebSocket topic
+        // Real-time broadcast to the conversation topic plus an authoritative
+        // unread update to the recipient's private queue.
         verify(messagingTemplate).convertAndSend(eq("/topic/conversations/conv-123"), any(MessageResponse.class));
+        verify(conversationUnreadService).notifyUnreadCount("user-2", "conv-123", 1);
+        verify(conversationUnreadService, never()).notifyUnreadCount(eq("user-1"), anyString(), anyInt());
+    }
+
+    @Test
+    @DisplayName("Should increment the other participant's unread count when they are the recipient")
+    void shouldIncrementRecipientWhenOtherUserSends() {
+        when(conversationService.getConversationAndValidateParticipant("conv-123", "user-2"))
+                .thenReturn(sampleConversation);
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> {
+            Message m = invocation.getArgument(0);
+            m.setId("msg-2");
+            return m;
+        });
+
+        Conversation updatedConversation = Conversation.builder()
+                .id("conv-123")
+                .participantIds(List.of("user-1", "user-2"))
+                .participantKey("user-1:user-2")
+                .unreadCounts(Map.of("user-1", 3))
+                .createdAt(sampleConversation.getCreatedAt())
+                .updatedAt(Instant.now())
+                .build();
+        when(conversationUnreadService.recordMessageAndIncrementUnread(
+                eq("conv-123"), eq("user-2"), eq("user-1"), eq("Reply"), any(Instant.class)))
+                .thenReturn(updatedConversation);
+
+        messageService.sendMessage("conv-123", "user-2", new SendMessageRequest("Reply"));
+
+        verify(conversationUnreadService).recordMessageAndIncrementUnread(
+                eq("conv-123"), eq("user-2"), eq("user-1"), eq("Reply"), any(Instant.class));
+        verify(conversationUnreadService).notifyUnreadCount("user-1", "conv-123", 3);
     }
 
     @Test

@@ -16,4 +16,9 @@ export const conversationApi = {
     const response = await axiosClient.post<Conversation>('/conversations', { recipientId } as CreateConversationRequest);
     return response.data;
   },
+
+  markAsRead: async (id: string): Promise<Conversation> => {
+    const response = await axiosClient.post<Conversation>(`/conversations/${id}/read`);
+    return response.data;
+  },
 };
