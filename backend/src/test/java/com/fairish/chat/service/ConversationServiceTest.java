@@ -1,6 +1,9 @@
 package com.fairish.chat.service;
 
 import com.fairish.chat.dto.ConversationResponse;
+import com.fairish.chat.encryption.EncryptedPayload;
+import com.fairish.chat.encryption.MessageEncryptionProperties;
+import com.fairish.chat.encryption.MessageEncryptionService;
 import com.fairish.chat.exception.ResourceNotFoundException;
 import com.fairish.chat.model.Conversation;
 import com.fairish.chat.model.User;
@@ -10,7 +13,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DuplicateKeyException;
@@ -41,7 +43,7 @@ class ConversationServiceTest {
     @Mock
     private ConversationUnreadService conversationUnreadService;
 
-    @InjectMocks
+    private MessageEncryptionService encryptionService;
     private ConversationService conversationService;
 
     private User user1;
@@ -51,6 +53,13 @@ class ConversationServiceTest {
 
     @BeforeEach
     void setUp() {
+        MessageEncryptionProperties encryptionProperties = new MessageEncryptionProperties();
+        encryptionProperties.setActiveKeyId("v1");
+        encryptionProperties.setKey("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpBQkNERUY=");
+        encryptionService = new MessageEncryptionService(encryptionProperties);
+        conversationService = new ConversationService(conversationRepository, userRepository,
+                contactService, conversationUnreadService, encryptionService);
+
         user1 = User.builder()
                 .id("user-1-id")
                 .username("alice")
@@ -166,6 +175,60 @@ class ConversationServiceTest {
         assertEquals(1, list.size());
         assertEquals("conv-123", list.get(0).getId());
         assertEquals("bob", list.get(0).getOtherUser().getUsername());
+    }
+
+    @Test
+    @DisplayName("Should decrypt encrypted conversation previews for API responses")
+    void shouldDecryptEncryptedPreview() {
+        EncryptedPayload preview = encryptionService.encrypt("Latest encrypted message");
+        Conversation encryptedConversation = Conversation.builder()
+                .id("conv-encrypted")
+                .participantIds(List.of("user-1-id", "user-2-id"))
+                .participantKey(Conversation.computeParticipantKey("user-1-id", "user-2-id"))
+                .lastMessageCiphertext(preview.ciphertext())
+                .lastMessageNonce(preview.nonce())
+                .lastMessageAuthTag(preview.authTag())
+                .lastMessageEncryptionVersion(preview.encryptionVersion())
+                .lastMessageKeyId(preview.keyId())
+                .lastMessageSenderId("user-2-id")
+                .lastMessageAt(Instant.now())
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .build();
+
+        when(conversationRepository.findByParticipantIdsContainingOrderByUpdatedAtDesc("user-1-id"))
+                .thenReturn(List.of(encryptedConversation));
+        when(contactService.getAcceptedContactIds("user-1-id")).thenReturn(Set.of("user-2-id"));
+        when(userRepository.findAllById(anySet())).thenReturn(List.of(user2));
+
+        List<ConversationResponse> list = conversationService.getUserConversations("user-1-id");
+
+        assertEquals("Latest encrypted message", list.get(0).getLastMessageText());
+        assertNotEquals(preview.ciphertext(), list.get(0).getLastMessageText());
+    }
+
+    @Test
+    @DisplayName("Should keep legacy plaintext conversation previews readable")
+    void shouldReadLegacyPlaintextPreview() {
+        Conversation legacyConversation = Conversation.builder()
+                .id("conv-legacy")
+                .participantIds(List.of("user-1-id", "user-2-id"))
+                .participantKey(Conversation.computeParticipantKey("user-1-id", "user-2-id"))
+                .lastMessageText("Old plaintext preview")
+                .lastMessageSenderId("user-2-id")
+                .lastMessageAt(Instant.now())
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .build();
+
+        when(conversationRepository.findByParticipantIdsContainingOrderByUpdatedAtDesc("user-1-id"))
+                .thenReturn(List.of(legacyConversation));
+        when(contactService.getAcceptedContactIds("user-1-id")).thenReturn(Set.of("user-2-id"));
+        when(userRepository.findAllById(anySet())).thenReturn(List.of(user2));
+
+        List<ConversationResponse> list = conversationService.getUserConversations("user-1-id");
+
+        assertEquals("Old plaintext preview", list.get(0).getLastMessageText());
     }
 
     @Test

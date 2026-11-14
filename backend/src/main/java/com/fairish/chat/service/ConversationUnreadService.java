@@ -1,6 +1,7 @@
 package com.fairish.chat.service;
 
 import com.fairish.chat.dto.UnreadCountUpdate;
+import com.fairish.chat.encryption.EncryptedPayload;
 import com.fairish.chat.model.Conversation;
 import com.fairish.chat.model.User;
 import com.fairish.chat.repository.UserRepository;
@@ -56,16 +57,23 @@ public class ConversationUnreadService {
 
     /**
      * Atomically updates the conversation summary and increments only the
-     * recipient's unread counter. Returns the updated conversation, or null if
-     * the conversation disappeared concurrently.
+     * recipient's unread counter. The preview is stored encrypted; any legacy
+     * plaintext preview field is removed in the same operation.
+     * Returns the updated conversation, or null if the conversation disappeared
+     * concurrently.
      */
     public Conversation recordMessageAndIncrementUnread(String conversationId,
                                                         String senderId,
                                                         String recipientId,
-                                                        String content,
+                                                        EncryptedPayload encryptedPreview,
                                                         Instant sentAt) {
         Update update = new Update()
-                .set("lastMessageText", content)
+                .set("lastMessageCiphertext", encryptedPreview.ciphertext())
+                .set("lastMessageNonce", encryptedPreview.nonce())
+                .set("lastMessageAuthTag", encryptedPreview.authTag())
+                .set("lastMessageEncryptionVersion", encryptedPreview.encryptionVersion())
+                .set("lastMessageKeyId", encryptedPreview.keyId())
+                .unset("lastMessageText")
                 .set("lastMessageSenderId", senderId)
                 .set("lastMessageAt", sentAt)
                 .set("updatedAt", sentAt)

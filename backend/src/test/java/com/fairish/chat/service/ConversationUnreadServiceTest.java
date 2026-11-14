@@ -1,6 +1,7 @@
 package com.fairish.chat.service;
 
 import com.fairish.chat.dto.UnreadCountUpdate;
+import com.fairish.chat.encryption.EncryptedPayload;
 import com.fairish.chat.model.Conversation;
 import com.fairish.chat.model.User;
 import com.fairish.chat.repository.UserRepository;
@@ -79,8 +80,10 @@ class ConversationUnreadServiceTest {
                 .thenReturn(conversation);
 
         Instant sentAt = Instant.parse("2026-01-01T10:00:00Z");
+        EncryptedPayload preview = new EncryptedPayload("ciphertext-value", "nonce-value",
+                "tag-value", 1, "v1");
         Conversation result = unreadService.recordMessageAndIncrementUnread(
-                "conv-123", "user-1", "user-2", "Hello", sentAt);
+                "conv-123", "user-1", "user-2", preview, sentAt);
 
         assertSame(conversation, result);
 
@@ -90,9 +93,16 @@ class ConversationUnreadServiceTest {
 
         Document update = updateCaptor.getValue().getUpdateObject();
         Document set = (Document) update.get("$set");
+        Document unset = (Document) update.get("$unset");
         Document inc = (Document) update.get("$inc");
 
-        assertEquals("Hello", set.get("lastMessageText"));
+        assertEquals("ciphertext-value", set.get("lastMessageCiphertext"));
+        assertEquals("nonce-value", set.get("lastMessageNonce"));
+        assertEquals("tag-value", set.get("lastMessageAuthTag"));
+        assertEquals(1, set.get("lastMessageEncryptionVersion"));
+        assertEquals("v1", set.get("lastMessageKeyId"));
+        assertFalse(set.containsKey("lastMessageText"), "Preview plaintext must never be written");
+        assertTrue(unset.containsKey("lastMessageText"), "Legacy plaintext preview must be removed");
         assertEquals("user-1", set.get("lastMessageSenderId"));
         assertEquals(sentAt, set.get("lastMessageAt"));
         assertEquals(1, inc.get("unreadCounts.user-2"));

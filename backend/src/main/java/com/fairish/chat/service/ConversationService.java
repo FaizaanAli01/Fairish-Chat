@@ -2,6 +2,7 @@ package com.fairish.chat.service;
 
 import com.fairish.chat.dto.ConversationResponse;
 import com.fairish.chat.dto.PublicUserResponse;
+import com.fairish.chat.encryption.MessageEncryptionService;
 import com.fairish.chat.exception.ResourceNotFoundException;
 import com.fairish.chat.model.Conversation;
 import com.fairish.chat.model.User;
@@ -27,15 +28,18 @@ public class ConversationService {
     private final UserRepository userRepository;
     private final ContactService contactService;
     private final ConversationUnreadService conversationUnreadService;
+    private final MessageEncryptionService encryptionService;
 
     public ConversationService(ConversationRepository conversationRepository,
                                UserRepository userRepository,
                                ContactService contactService,
-                               ConversationUnreadService conversationUnreadService) {
+                               ConversationUnreadService conversationUnreadService,
+                               MessageEncryptionService encryptionService) {
         this.conversationRepository = conversationRepository;
         this.userRepository = userRepository;
         this.contactService = contactService;
         this.conversationUnreadService = conversationUnreadService;
+        this.encryptionService = encryptionService;
     }
 
     /**
@@ -211,7 +215,7 @@ public class ConversationService {
                 .id(conversation.getId())
                 .participantIds(conversation.getParticipantIds())
                 .otherUser(otherUserResponse)
-                .lastMessageText(conversation.getLastMessageText())
+                .lastMessageText(encryptionService.decryptConversationPreview(conversation))
                 .lastMessageSenderId(conversation.getLastMessageSenderId())
                 .lastMessageAt(conversation.getLastMessageAt())
                 .unreadCount(conversation.getUnreadCount(currentUserId))

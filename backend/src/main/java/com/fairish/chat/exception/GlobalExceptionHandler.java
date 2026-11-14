@@ -276,6 +276,24 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(errorResponse);
     }
 
+    @ExceptionHandler(MessageDecryptionException.class)
+    public ResponseEntity<ErrorResponse> handleMessageDecryptionException(
+            MessageDecryptionException ex, HttpServletRequest request) {
+        // Log only the generic reason; ciphertext, keys and plaintext never
+        // appear in this exception or in the response.
+        log.error("Message decryption failed for [{}]: {}", request.getRequestURI(), ex.getMessage());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(Instant.now())
+                .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
+                .error("Internal Server Error")
+                .message("Message content could not be decrypted.")
+                .path(request.getRequestURI())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGenericException(
             Exception ex, HttpServletRequest request) {

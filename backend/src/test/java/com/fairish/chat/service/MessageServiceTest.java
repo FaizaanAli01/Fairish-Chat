@@ -3,6 +3,10 @@ package com.fairish.chat.service;
 import com.fairish.chat.dto.MessageResponse;
 import com.fairish.chat.dto.PaginatedResponse;
 import com.fairish.chat.dto.SendMessageRequest;
+import com.fairish.chat.encryption.EncryptedPayload;
+import com.fairish.chat.encryption.MessageEncryptionProperties;
+import com.fairish.chat.encryption.MessageEncryptionService;
+import com.fairish.chat.exception.MessageDecryptionException;
 import com.fairish.chat.model.Conversation;
 import com.fairish.chat.model.Message;
 import com.fairish.chat.repository.MessageRepository;
@@ -10,16 +14,18 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.time.Instant;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
@@ -33,6 +39,8 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class MessageServiceTest {
 
+    static final String TEST_KEY = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpBQkNERUY=";
+
     @Mock
     private MessageRepository messageRepository;
 
@@ -45,13 +53,22 @@ class MessageServiceTest {
     @Mock
     private SimpMessagingTemplate messagingTemplate;
 
-    @InjectMocks
+    private MessageEncryptionService encryptionService;
     private MessageService messageService;
 
     private Conversation sampleConversation;
 
     @BeforeEach
     void setUp() {
+        MessageEncryptionProperties properties = new MessageEncryptionProperties();
+        properties.setEnabled(true);
+        properties.setActiveKeyId("v1");
+        properties.setKey(TEST_KEY);
+        encryptionService = new MessageEncryptionService(properties);
+
+        messageService = new MessageService(messageRepository, conversationService,
+                conversationUnreadService, messagingTemplate, encryptionService);
+
         sampleConversation = Conversation.builder()
                 .id("conv-123")
                 .participantIds(List.of("user-1", "user-2"))
@@ -62,8 +79,8 @@ class MessageServiceTest {
     }
 
     @Test
-    @DisplayName("Should send and persist message, updating conversation summary and broadcasting to topic")
-    void shouldSendMessageSuccessfully() {
+    @DisplayName("Should encrypt before persistence and broadcast only decrypted plaintext")
+    void shouldEncryptPersistAndBroadcastPlaintext() {
         when(conversationService.getConversationAndValidateParticipant("conv-123", "user-1"))
                 .thenReturn(sampleConversation);
 
@@ -77,14 +94,12 @@ class MessageServiceTest {
                 .id("conv-123")
                 .participantIds(List.of("user-1", "user-2"))
                 .participantKey("user-1:user-2")
-                .lastMessageText("Hello, World!")
-                .lastMessageSenderId("user-1")
                 .unreadCounts(Map.of("user-2", 1))
                 .createdAt(sampleConversation.getCreatedAt())
                 .updatedAt(Instant.now())
                 .build();
         when(conversationUnreadService.recordMessageAndIncrementUnread(
-                eq("conv-123"), eq("user-1"), eq("user-2"), eq("Hello, World!"), any(Instant.class)))
+                eq("conv-123"), eq("user-1"), eq("user-2"), any(EncryptedPayload.class), any(Instant.class)))
                 .thenReturn(updatedConversation);
 
         SendMessageRequest request = new SendMessageRequest("Hello, World!");
@@ -96,16 +111,32 @@ class MessageServiceTest {
         assertEquals("user-1", response.getSenderId());
         assertEquals("Hello, World!", response.getContent());
 
-        // Only the recipient's persisted counter is incremented, atomically with
-        // the conversation summary.
-        verify(conversationUnreadService, times(1)).recordMessageAndIncrementUnread(
-                eq("conv-123"), eq("user-1"), eq("user-2"), eq("Hello, World!"), any(Instant.class));
-        verify(conversationUnreadService, never()).recordMessageAndIncrementUnread(
-                anyString(), anyString(), eq("user-1"), anyString(), any(Instant.class));
+        ArgumentCaptor<Message> savedCaptor = ArgumentCaptor.forClass(Message.class);
+        verify(messageRepository).save(savedCaptor.capture());
+        Message saved = savedCaptor.getValue();
+        assertNull(saved.getContent(), "New messages must not persist plaintext in content");
+        assertNotNull(saved.getCiphertext());
+        assertEquals(1, saved.getEncryptionVersion());
+        assertEquals("v1", saved.getKeyId());
+        assertEquals(12, Base64.getDecoder().decode(saved.getNonce()).length);
+        assertEquals(16, Base64.getDecoder().decode(saved.getAuthTag()).length);
+        assertNotEquals("Hello, World!", saved.getCiphertext());
+        assertEquals("Hello, World!", encryptionService.decrypt(saved));
 
-        // Real-time broadcast to the conversation topic plus an authoritative
-        // unread update to the recipient's private queue.
-        verify(messagingTemplate).convertAndSend(eq("/topic/conversations/conv-123"), any(MessageResponse.class));
+        ArgumentCaptor<EncryptedPayload> previewCaptor = ArgumentCaptor.forClass(EncryptedPayload.class);
+        verify(conversationUnreadService).recordMessageAndIncrementUnread(
+                eq("conv-123"), eq("user-1"), eq("user-2"), previewCaptor.capture(), any(Instant.class));
+        EncryptedPayload preview = previewCaptor.getValue();
+        assertEquals("Hello, World!", encryptionService.decrypt(preview));
+        assertNotEquals(saved.getNonce(), preview.nonce(),
+                "The preview and message must use independent nonces");
+        assertNotEquals(saved.getCiphertext(), preview.ciphertext());
+
+        ArgumentCaptor<MessageResponse> broadcastCaptor = ArgumentCaptor.forClass(MessageResponse.class);
+        verify(messagingTemplate).convertAndSend(eq("/topic/conversations/conv-123"), broadcastCaptor.capture());
+        assertEquals("Hello, World!", broadcastCaptor.getValue().getContent());
+        assertNotEquals(saved.getCiphertext(), broadcastCaptor.getValue().getContent());
+
         verify(conversationUnreadService).notifyUnreadCount("user-2", "conv-123", 1);
         verify(conversationUnreadService, never()).notifyUnreadCount(eq("user-1"), anyString(), anyInt());
     }
@@ -130,13 +161,13 @@ class MessageServiceTest {
                 .updatedAt(Instant.now())
                 .build();
         when(conversationUnreadService.recordMessageAndIncrementUnread(
-                eq("conv-123"), eq("user-2"), eq("user-1"), eq("Reply"), any(Instant.class)))
+                eq("conv-123"), eq("user-2"), eq("user-1"), any(EncryptedPayload.class), any(Instant.class)))
                 .thenReturn(updatedConversation);
 
         messageService.sendMessage("conv-123", "user-2", new SendMessageRequest("Reply"));
 
         verify(conversationUnreadService).recordMessageAndIncrementUnread(
-                eq("conv-123"), eq("user-2"), eq("user-1"), eq("Reply"), any(Instant.class));
+                eq("conv-123"), eq("user-2"), eq("user-1"), any(EncryptedPayload.class), any(Instant.class));
         verify(conversationUnreadService).notifyUnreadCount("user-1", "conv-123", 3);
     }
 
@@ -187,18 +218,13 @@ class MessageServiceTest {
     }
 
     @Test
-    @DisplayName("Should retrieve paginated message history for valid participant")
-    void shouldGetMessageHistory() {
+    @DisplayName("Should decrypt paginated message history for a valid participant")
+    void shouldGetDecryptedMessageHistory() {
         when(conversationService.getConversationAndValidateParticipant("conv-123", "user-1"))
                 .thenReturn(sampleConversation);
 
-        Message msg1 = Message.builder()
-                .id("msg-1")
-                .conversationId("conv-123")
-                .senderId("user-1")
-                .content("First")
-                .createdAt(Instant.now())
-                .build();
+        EncryptedPayload payload = encryptionService.encrypt("First");
+        Message msg1 = encryptedMessage("msg-1", payload);
 
         Page<Message> page = new PageImpl<>(List.of(msg1));
         when(messageRepository.findByConversationIdOrderByCreatedAtDesc(eq("conv-123"), any(Pageable.class)))
@@ -210,6 +236,75 @@ class MessageServiceTest {
         assertEquals(1, response.getContent().size());
         assertEquals("First", response.getContent().get(0).getContent());
         assertEquals("msg-1", response.getContent().get(0).getId());
+    }
+
+    @Test
+    @DisplayName("Should keep legacy plaintext messages readable")
+    void shouldReadLegacyPlaintextMessages() {
+        when(conversationService.getConversationAndValidateParticipant("conv-123", "user-1"))
+                .thenReturn(sampleConversation);
+
+        Message legacy = Message.builder()
+                .id("legacy-1")
+                .conversationId("conv-123")
+                .senderId("user-1")
+                .content("Legacy plaintext")
+                .createdAt(Instant.now())
+                .build();
+        when(messageRepository.findByConversationIdOrderByCreatedAtDesc(eq("conv-123"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(legacy)));
+
+        PaginatedResponse<MessageResponse> response = messageService.getMessageHistory("conv-123", "user-1", 0, 20);
+
+        assertEquals("Legacy plaintext", response.getContent().get(0).getContent());
+    }
+
+    @Test
+    @DisplayName("Should reject tampered ciphertext instead of returning it as plaintext")
+    void shouldRejectTamperedHistory() {
+        when(conversationService.getConversationAndValidateParticipant("conv-123", "user-1"))
+                .thenReturn(sampleConversation);
+
+        EncryptedPayload payload = encryptionService.encrypt("Original");
+        byte[] tampered = Base64.getDecoder().decode(payload.ciphertext());
+        tampered[0] ^= 0x01;
+        Message message = Message.builder()
+                .id("msg-tampered")
+                .conversationId("conv-123")
+                .senderId("user-1")
+                .ciphertext(Base64.getEncoder().encodeToString(tampered))
+                .nonce(payload.nonce())
+                .authTag(payload.authTag())
+                .encryptionVersion(payload.encryptionVersion())
+                .keyId(payload.keyId())
+                .createdAt(Instant.now())
+                .build();
+        when(messageRepository.findByConversationIdOrderByCreatedAtDesc(eq("conv-123"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(message)));
+
+        assertThrows(MessageDecryptionException.class,
+                () -> messageService.getMessageHistory("conv-123", "user-1", 0, 20));
+    }
+
+    @Test
+    @DisplayName("Should preserve pagination metadata while decrypting history")
+    void shouldPreservePaginationMetadata() {
+        when(conversationService.getConversationAndValidateParticipant("conv-123", "user-1"))
+                .thenReturn(sampleConversation);
+
+        Message newest = encryptedMessage("msg-2", encryptionService.encrypt("Newest"));
+        Message older = encryptedMessage("msg-1", encryptionService.encrypt("Older"));
+        Page<Message> page = new PageImpl<>(List.of(newest, older), PageRequest.of(0, 2), 5);
+        when(messageRepository.findByConversationIdOrderByCreatedAtDesc(eq("conv-123"), any(Pageable.class)))
+                .thenReturn(page);
+
+        PaginatedResponse<MessageResponse> response = messageService.getMessageHistory("conv-123", "user-1", 0, 2);
+
+        assertEquals(2, response.getContent().size());
+        assertEquals(5, response.getTotalElements());
+        assertTrue(response.isHasMore());
+        assertEquals("Newest", response.getContent().get(0).getContent());
+        assertEquals("Older", response.getContent().get(1).getContent());
     }
 
     @Test
@@ -246,5 +341,19 @@ class MessageServiceTest {
                 messageService.getMessageHistory("conv-123", "user-1", 0, 20)
         );
         verifyNoInteractions(messageRepository);
+    }
+
+    private Message encryptedMessage(String id, EncryptedPayload payload) {
+        return Message.builder()
+                .id(id)
+                .conversationId("conv-123")
+                .senderId("user-1")
+                .ciphertext(payload.ciphertext())
+                .nonce(payload.nonce())
+                .authTag(payload.authTag())
+                .encryptionVersion(payload.encryptionVersion())
+                .keyId(payload.keyId())
+                .createdAt(Instant.now())
+                .build();
     }
 }

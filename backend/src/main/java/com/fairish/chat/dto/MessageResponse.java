@@ -23,7 +23,11 @@ public class MessageResponse {
         this.createdAt = createdAt;
     }
 
-    public static MessageResponse fromMessage(Message message) {
+    /**
+     * Builds the client-facing response. The caller must provide decrypted
+     * plaintext; encrypted model fields are never copied into API responses.
+     */
+    public static MessageResponse fromMessage(Message message, String decryptedContent) {
         if (message == null) {
             return null;
         }
@@ -31,7 +35,7 @@ public class MessageResponse {
                 .id(message.getId())
                 .conversationId(message.getConversationId())
                 .senderId(message.getSenderId())
-                .content(message.getContent())
+                .content(decryptedContent)
                 .createdAt(message.getCreatedAt())
                 .build();
     }

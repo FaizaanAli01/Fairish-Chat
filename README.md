@@ -18,6 +18,9 @@ enterprise-shaped.
   and accepted contacts; remove contacts.
 - **Contact-gated chat**: conversations, message history, message sending, and STOMP
   subscribe/send are all denied unless the pair has an `ACCEPTED` contact request.
+- **Encrypted message storage**: AES-256-GCM at rest for message bodies and conversation
+  previews, with per-message nonces, authenticated decryption, versioned records, and
+  key rotation support. The backend decrypts on read; the browser never receives a key.
 - **1-to-1 conversations**: deterministic pair keys, duplicate-safe creation, paginated
   message history (newest first), message length validation (1–2000 characters).
 - **Real-time delivery**: STOMP over native WebSocket (with SockJS fallback) at `/ws`,
@@ -25,9 +28,9 @@ enterprise-shaped.
 - **Private avatars**: server-side validation and normalization, private bucket, no public
   or presigned URLs, owner-or-accepted-contact authorization.
 
-Not implemented: end-to-end encryption, presence, typing indicators, read receipts, group
-chats, message attachments, push notifications, and rate limiting. See
-[Known limitations](#known-limitations).
+Not implemented: end-to-end encryption (the server holds the at-rest key), presence, typing
+indicators, read receipts, group chats, message attachments, push notifications, and rate
+limiting. See [Known limitations](#known-limitations).
 
 ## Architecture
 
@@ -190,6 +193,15 @@ Set `JWT_SECRET` in `backend/.env` to a random value of at least 32 bytes:
 openssl rand -base64 48
 ```
 
+Set `MESSAGE_ENCRYPTION_KEY` to a Base64-encoded 32-byte AES key:
+
+```bash
+openssl rand -base64 32
+```
+
+The backend refuses to start when message encryption is enabled (the default) and the key
+is missing or invalid. Generate a different key for each environment; never commit it.
+
 The template already contains MinIO settings that match `docker-compose.yml`. If your
 existing `.env` predates avatar support, add the `AVATAR_*` block from `.env.example`;
 without it avatar storage defaults to disabled and avatar endpoints return `503`.
@@ -240,6 +252,12 @@ when provided.
 | `MONGODB_DATABASE` | No | Database name | `fairish_chat` |
 | `JWT_SECRET` | Yes | HS256 secret, minimum 32 bytes | none — startup fails |
 | `JWT_EXPIRATION` | No | Token lifetime in ms | `86400000` (24 h) |
+| `MESSAGE_ENCRYPTION_ENABLED` | No | Encrypt message bodies and previews at rest | `true` |
+| `MESSAGE_ENCRYPTION_KEY_ID` | No | Identifier of the active key | `v1` |
+| `MESSAGE_ENCRYPTION_KEY` | When enabled | Base64 32-byte AES key | none — startup fails |
+| `MESSAGE_ENCRYPTION_PREVIOUS_KEYS` | No | Old `keyId:base64Key` entries, comma-separated | empty |
+| `MESSAGE_ENCRYPTION_MIGRATION_ENABLED` | No | Opt in to the legacy migration at startup | `false` |
+| `MESSAGE_ENCRYPTION_MIGRATION_MODE` | No | `dry-run` or `apply` | `dry-run` |
 | `CORS_ALLOWED_ORIGINS` | In `prod` | Comma-separated exact frontend origins | localhost dev origins |
 | `AVATAR_STORAGE_ENABLED` | No | Enable S3 avatar storage | `false` in dev config; `true` in `prod` |
 | `AVATAR_STORAGE_ENDPOINT` | For MinIO/R2 | S3 endpoint URL | empty (AWS default) |
@@ -259,6 +277,20 @@ is not running on the default local address.
 The `prod` profile defaults avatar storage to enabled and fails fast if credentials are
 missing. It also requires `CORS_ALLOWED_ORIGINS`, disables exception details in error
 responses, and trusts `X-Forwarded-*` headers.
+
+### Message encryption
+
+New messages and conversation previews are encrypted before MongoDB persistence with
+AES-256-GCM (96-bit random nonce per operation, 128-bit authentication tag). Stored records
+carry `ciphertext`, `nonce`, `authTag`, `encryptionVersion`, and `keyId`; new records do not
+store plaintext. The backend decrypts on REST history and conversation responses, and before
+STOMP broadcasts. The key never leaves the server and is never included in `VITE_*` values or
+API responses.
+
+Legacy plaintext records are still readable (they have no `encryptionVersion`). To convert
+them, use the opt-in migration utility with a dry run first; nothing is rewritten
+automatically. Full commands, key rotation, and troubleshooting are in
+[`backend/README.md`](backend/README.md#message-encryption-at-rest).
 
 ### Frontend
 
@@ -371,10 +403,12 @@ cd backend
 ./mvnw test          # macOS / Linux
 ```
 
-Current result: **204 tests, 0 failures, 0 errors, 1 skipped**.
+Current result: **238 tests, 0 failures, 0 errors, 1 skipped**.
 
 Coverage includes service-level policy tests, MockMvc controller tests, JWT/security tests,
-avatar processing/storage tests, privacy serialization tests, and STOMP interceptor tests.
+AES-256-GCM encryption/decryption tests (unique nonces, tampered ciphertext, wrong key,
+invalid nonce, legacy plaintext), REST/STOMP plaintext delivery, encrypted previews, avatar
+processing/storage tests, privacy serialization tests, and STOMP interceptor tests.
 The contact rule is tested for creation, listing/filtering, REST history/send, and STOMP
 subscribe/send after removal.
 
@@ -410,20 +444,25 @@ compilation plus a production build.
 
 ## Production notes
 
-1. Activate the `prod` profile and set `JWT_SECRET`, `MONGODB_URI`, and
-   `CORS_ALLOWED_ORIGINS` explicitly.
-2. Use Cloudflare R2 (or another private S3-compatible bucket) with path-style access
+1. Activate the `prod` profile and set `JWT_SECRET`, `MESSAGE_ENCRYPTION_KEY`,
+   `MONGODB_URI`, and `CORS_ALLOWED_ORIGINS` explicitly.
+2. Store encryption keys in a secret manager or environment variables, never in source
+   control or MongoDB. Keep the previous key(s) available until old records are re-encrypted
+   or deliberately retired.
+3. Use Cloudflare R2 (or another private S3-compatible bucket) with path-style access
    disabled and the bucket provisioned out of band. Keep the bucket private; the application
    never issues public or presigned URLs.
-3. Terminate TLS at your reverse proxy and forward WebSocket upgrades for `/ws`.
-4. Build the frontend with the public HTTPS API and WebSocket URLs.
-5. Serve the SPA with a fallback rewrite to `index.html` (`frontend/public/_redirects` and
+4. Terminate TLS at your reverse proxy and forward WebSocket upgrades for `/ws`.
+5. Build the frontend with the public HTTPS API and WebSocket URLs.
+6. Serve the SPA with a fallback rewrite to `index.html` (`frontend/public/_redirects` and
    `frontend/vercel.json` are included for common hosts).
 
 ## Known limitations
 
-- **No end-to-end encryption.** Message content is stored in MongoDB in plaintext. TLS
-  protects transport only; the server can read message data.
+- **Server-side encryption, not end-to-end encryption.** Message bodies and conversation
+  previews are encrypted at rest with AES-256-GCM using a key held outside MongoDB, but the
+  backend decrypts them to serve the API and real-time events. TLS protects transport only;
+  the server (and anyone with the encryption key) can read message data.
 - **No presence, typing indicators, or read receipts.**
 - **Single-instance real-time broker.** The STOMP simple broker is in-memory, so multiple
   backend instances do not share subscriptions. Horizontal scaling would require an external

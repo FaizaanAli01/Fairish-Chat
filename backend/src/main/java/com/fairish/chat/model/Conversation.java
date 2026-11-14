@@ -7,6 +7,7 @@ import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.index.CompoundIndexes;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
+import org.springframework.data.mongodb.core.mapping.Field;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -38,9 +39,33 @@ public class Conversation {
     @Indexed(unique = true)
     private String participantKey;
 
+    /**
+     * Legacy plaintext preview. New messages never update this field; it is
+     * retained only for conversations whose latest message predates encryption.
+     */
+    @Field(write = Field.Write.NON_NULL)
     private String lastMessageText;
     private String lastMessageSenderId;
     private Instant lastMessageAt;
+
+    /**
+     * AES-256-GCM preview of the latest message. Stored in place of
+     * {@link #lastMessageText} for every new message.
+     */
+    @Field(write = Field.Write.NON_NULL)
+    private String lastMessageCiphertext;
+
+    @Field(write = Field.Write.NON_NULL)
+    private String lastMessageNonce;
+
+    @Field(write = Field.Write.NON_NULL)
+    private String lastMessageAuthTag;
+
+    @Field(write = Field.Write.NON_NULL)
+    private Integer lastMessageEncryptionVersion;
+
+    @Field(write = Field.Write.NON_NULL)
+    private String lastMessageKeyId;
 
     /**
      * Unread message count per participant user ID. Only the recipient of a
@@ -60,6 +85,8 @@ public class Conversation {
 
     public Conversation(String id, List<String> participantIds, String participantKey,
                         String lastMessageText, String lastMessageSenderId, Instant lastMessageAt,
+                        String lastMessageCiphertext, String lastMessageNonce, String lastMessageAuthTag,
+                        Integer lastMessageEncryptionVersion, String lastMessageKeyId,
                         Map<String, Integer> unreadCounts, Instant createdAt, Instant updatedAt) {
         this.id = id;
         this.participantIds = participantIds != null ? participantIds : new ArrayList<>();
@@ -67,6 +94,11 @@ public class Conversation {
         this.lastMessageText = lastMessageText;
         this.lastMessageSenderId = lastMessageSenderId;
         this.lastMessageAt = lastMessageAt;
+        this.lastMessageCiphertext = lastMessageCiphertext;
+        this.lastMessageNonce = lastMessageNonce;
+        this.lastMessageAuthTag = lastMessageAuthTag;
+        this.lastMessageEncryptionVersion = lastMessageEncryptionVersion;
+        this.lastMessageKeyId = lastMessageKeyId;
         this.unreadCounts = unreadCounts != null ? unreadCounts : new HashMap<>();
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
@@ -162,6 +194,46 @@ public class Conversation {
         this.lastMessageText = lastMessageText;
     }
 
+    public String getLastMessageCiphertext() {
+        return lastMessageCiphertext;
+    }
+
+    public void setLastMessageCiphertext(String lastMessageCiphertext) {
+        this.lastMessageCiphertext = lastMessageCiphertext;
+    }
+
+    public String getLastMessageNonce() {
+        return lastMessageNonce;
+    }
+
+    public void setLastMessageNonce(String lastMessageNonce) {
+        this.lastMessageNonce = lastMessageNonce;
+    }
+
+    public String getLastMessageAuthTag() {
+        return lastMessageAuthTag;
+    }
+
+    public void setLastMessageAuthTag(String lastMessageAuthTag) {
+        this.lastMessageAuthTag = lastMessageAuthTag;
+    }
+
+    public Integer getLastMessageEncryptionVersion() {
+        return lastMessageEncryptionVersion;
+    }
+
+    public void setLastMessageEncryptionVersion(Integer lastMessageEncryptionVersion) {
+        this.lastMessageEncryptionVersion = lastMessageEncryptionVersion;
+    }
+
+    public String getLastMessageKeyId() {
+        return lastMessageKeyId;
+    }
+
+    public void setLastMessageKeyId(String lastMessageKeyId) {
+        this.lastMessageKeyId = lastMessageKeyId;
+    }
+
     public String getLastMessageSenderId() {
         return lastMessageSenderId;
     }
@@ -222,6 +294,11 @@ public class Conversation {
         private String lastMessageText;
         private String lastMessageSenderId;
         private Instant lastMessageAt;
+        private String lastMessageCiphertext;
+        private String lastMessageNonce;
+        private String lastMessageAuthTag;
+        private Integer lastMessageEncryptionVersion;
+        private String lastMessageKeyId;
         private Map<String, Integer> unreadCounts = new HashMap<>();
         private Instant createdAt;
         private Instant updatedAt;
@@ -256,6 +333,31 @@ public class Conversation {
             return this;
         }
 
+        public ConversationBuilder lastMessageCiphertext(String lastMessageCiphertext) {
+            this.lastMessageCiphertext = lastMessageCiphertext;
+            return this;
+        }
+
+        public ConversationBuilder lastMessageNonce(String lastMessageNonce) {
+            this.lastMessageNonce = lastMessageNonce;
+            return this;
+        }
+
+        public ConversationBuilder lastMessageAuthTag(String lastMessageAuthTag) {
+            this.lastMessageAuthTag = lastMessageAuthTag;
+            return this;
+        }
+
+        public ConversationBuilder lastMessageEncryptionVersion(Integer lastMessageEncryptionVersion) {
+            this.lastMessageEncryptionVersion = lastMessageEncryptionVersion;
+            return this;
+        }
+
+        public ConversationBuilder lastMessageKeyId(String lastMessageKeyId) {
+            this.lastMessageKeyId = lastMessageKeyId;
+            return this;
+        }
+
         public ConversationBuilder unreadCounts(Map<String, Integer> unreadCounts) {
             this.unreadCounts = unreadCounts;
             return this;
@@ -274,6 +376,8 @@ public class Conversation {
         public Conversation build() {
             return new Conversation(id, participantIds, participantKey,
                     lastMessageText, lastMessageSenderId, lastMessageAt,
+                    lastMessageCiphertext, lastMessageNonce, lastMessageAuthTag,
+                    lastMessageEncryptionVersion, lastMessageKeyId,
                     unreadCounts, createdAt, updatedAt);
         }
     }

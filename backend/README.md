@@ -22,6 +22,7 @@ src/main/java/com/fairish/chat
 │                ContactController, ConversationController, MessageController,
 │                WebSocketChatController, HealthController
 ├── dto/         Request/response models. PublicUserResponse deliberately omits email.
+├── encryption/  AES-256-GCM message encryption, key ring, legacy migration
 ├── exception/   Domain exceptions and GlobalExceptionHandler
 ├── model/       User, ContactRequest, ContactStatus, Conversation, Message
 ├── repository/  Spring Data MongoDB repositories
@@ -50,6 +51,13 @@ match it.
 | `MONGODB_DATABASE` | Database name | `fairish_chat` |
 | `JWT_SECRET` | HMAC secret, minimum 32 bytes | **required** |
 | `JWT_EXPIRATION` | Token lifetime in ms | `86400000` |
+| `MESSAGE_ENCRYPTION_ENABLED` | Encrypt messages at rest | `true` |
+| `MESSAGE_ENCRYPTION_KEY_ID` | Identifier of the active key | `v1` |
+| `MESSAGE_ENCRYPTION_KEY` | Base64-encoded 32-byte AES key | **required when enabled** |
+| `MESSAGE_ENCRYPTION_PREVIOUS_KEYS` | Old `keyId:base64Key` entries for decryption | empty |
+| `MESSAGE_ENCRYPTION_MIGRATION_ENABLED` | Run the legacy migration at startup | `false` |
+| `MESSAGE_ENCRYPTION_MIGRATION_MODE` | `dry-run` or `apply` | `dry-run` |
+| `MESSAGE_ENCRYPTION_MIGRATION_BATCH_SIZE` | Migration batch size | `100` |
 | `CORS_ALLOWED_ORIGINS` | Exact origins, comma-separated | localhost dev origins |
 | `AVATAR_STORAGE_ENABLED` | Enable S3 storage | `false` (dev), `true` (`prod`) |
 | `AVATAR_STORAGE_ENDPOINT` | S3 endpoint | empty |
@@ -75,12 +83,67 @@ match it.
 When storage is disabled, `DisabledAvatarStorage` is used and avatar endpoints return `503`.
 When enabled, `AvatarStorageConfig` fails at startup if any required credential is missing.
 
+### Message encryption at rest
+
+Message content is encrypted with **AES-256-GCM** before it reaches MongoDB. The backend
+decrypts it on every read path (REST history, conversation previews) and before broadcasting
+over STOMP. The React app continues to receive the same plaintext JSON contract; no key or
+ciphertext metadata is exposed to the browser.
+
+- Algorithm: `AES/GCM/NoPadding`, 256-bit key, 96-bit random nonce per encryption
+  operation, 128-bit authentication tag.
+- Every new message and every conversation preview is encrypted as a separate operation,
+  so they never share a nonce.
+- Plaintext is never written to `messages.content` or `conversations.lastMessageText` for
+  new messages. Legacy fields remain readable.
+- Decryption validates the record structure, key ID, nonce length, tag length and
+  authentication tag. A failure is rejected with a generic error; ciphertext is never
+  returned as a message body.
+
+Generate a key (never commit it):
+
+```bash
+openssl rand -base64 32
+```
+
+Set `MESSAGE_ENCRYPTION_KEY` to that value and keep `MESSAGE_ENCRYPTION_KEY_ID` stable for
+the lifetime of the key. Startup fails when encryption is enabled and the key is missing,
+not Base64, or not exactly 32 bytes. The key is never logged.
+
+**Key rotation.** Add the new key as `MESSAGE_ENCRYPTION_KEY` with a new
+`MESSAGE_ENCRYPTION_KEY_ID`, then list the old key in
+`MESSAGE_ENCRYPTION_PREVIOUS_KEYS` (for example `v1:<old-base64-key>`). New writes use the
+active key; old records decrypt with the key ID stored beside their ciphertext.
+
+**Legacy plaintext migration.** Existing records are never rewritten or deleted
+automatically. The opt-in utility encrypts `content` and `lastMessageText` in place and
+removes the plaintext field only after writing the encrypted fields:
+
+```bash
+cd backend
+# 1. Count candidates without modifying anything
+MESSAGE_ENCRYPTION_MIGRATION_ENABLED=true \
+MESSAGE_ENCRYPTION_MIGRATION_MODE=dry-run \
+./mvnw spring-boot:run
+
+# 2. After reviewing the counts and taking a backup, apply once
+MESSAGE_ENCRYPTION_MIGRATION_ENABLED=true \
+MESSAGE_ENCRYPTION_MIGRATION_MODE=apply \
+./mvnw spring-boot:run --spring.main.web-application-type=none
+```
+
+The runner executes once at startup. Use `--spring.main.web-application-type=none` for a
+dedicated migration job so the process exits when the run finishes. Do not run it
+concurrently with normal traffic. Reading is backward compatible even before migration:
+records without `encryptionVersion` are treated as legacy plaintext.
+
 ### Production profile
 
 `application-prod.yml`:
 
 - requires an explicit `CORS_ALLOWED_ORIGINS` (no localhost defaults);
 - defaults avatar storage to enabled and fails fast without credentials;
+- keeps message encryption enabled and fails fast without a valid key;
 - enables reverse-proxy header handling;
 - suppresses exception messages/stack traces in error responses.
 
@@ -139,9 +202,11 @@ See the root `README.md` for request bodies, status codes, and the full authoriz
 
 ## Tests
 
-Current suite: **204 tests, 0 failures, 0 errors, 1 skipped**.
+Current suite: **238 tests, 0 failures, 0 errors, 1 skipped**.
 
 The suite covers contact lifecycle and policy tests, conversation/message authorization,
+AES-256-GCM encryption and decryption (unique nonces, tampered ciphertext, wrong key,
+invalid nonce, legacy plaintext), REST/STOMP plaintext delivery, encrypted previews,
 MockMvc controller behavior, JWT/security, avatar processing and storage, public-projection
 privacy, and STOMP interceptor authorization.
 
@@ -155,7 +220,10 @@ Important caveats:
 
 ## Limitations
 
-- No end-to-end encryption; messages are stored in plaintext.
+- Messages are encrypted at rest server-side (AES-256-GCM), but this is not end-to-end
+  encryption: the backend holds the key and can decrypt content to serve it.
+- No key management service integration; keys come from environment variables/secret
+  manager supplied configuration.
 - No presence, typing indicators, or read receipts.
 - In-memory STOMP broker: single instance only.
 - No rate limiting.

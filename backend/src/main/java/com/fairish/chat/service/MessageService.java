@@ -3,6 +3,8 @@ package com.fairish.chat.service;
 import com.fairish.chat.dto.MessageResponse;
 import com.fairish.chat.dto.PaginatedResponse;
 import com.fairish.chat.dto.SendMessageRequest;
+import com.fairish.chat.encryption.EncryptedPayload;
+import com.fairish.chat.encryption.MessageEncryptionService;
 import com.fairish.chat.model.Conversation;
 import com.fairish.chat.model.Message;
 import com.fairish.chat.repository.MessageRepository;
@@ -26,15 +28,18 @@ public class MessageService {
     private final ConversationService conversationService;
     private final ConversationUnreadService conversationUnreadService;
     private final SimpMessagingTemplate messagingTemplate;
+    private final MessageEncryptionService encryptionService;
 
     public MessageService(MessageRepository messageRepository,
                           ConversationService conversationService,
                           ConversationUnreadService conversationUnreadService,
-                          SimpMessagingTemplate messagingTemplate) {
+                          SimpMessagingTemplate messagingTemplate,
+                          MessageEncryptionService encryptionService) {
         this.messageRepository = messageRepository;
         this.conversationService = conversationService;
         this.conversationUnreadService = conversationUnreadService;
         this.messagingTemplate = messagingTemplate;
+        this.encryptionService = encryptionService;
     }
 
     /**
@@ -57,27 +62,36 @@ public class MessageService {
 
         Instant now = Instant.now();
 
+        // Encrypt the message body before it ever reaches MongoDB. The preview
+        // is encrypted as a separate operation so both records get a fresh,
+        // independent nonce.
+        EncryptedPayload messagePayload = encryptionService.encrypt(trimmedContent);
         Message message = Message.builder()
                 .conversationId(conversationId)
                 .senderId(currentUserId)
-                .content(trimmedContent)
+                .ciphertext(messagePayload.ciphertext())
+                .nonce(messagePayload.nonce())
+                .authTag(messagePayload.authTag())
+                .encryptionVersion(messagePayload.encryptionVersion())
+                .keyId(messagePayload.keyId())
                 .createdAt(now)
                 .build();
 
         Message savedMessage = messageRepository.save(message);
 
         String recipientId = conversation.getOtherParticipantId(currentUserId);
+        EncryptedPayload previewPayload = encryptionService.encrypt(trimmedContent);
         Conversation updatedConversation = conversationUnreadService.recordMessageAndIncrementUnread(
-                conversationId, currentUserId, recipientId, trimmedContent, now);
+                conversationId, currentUserId, recipientId, previewPayload, now);
         if (updatedConversation == null) {
             log.warn("Conversation [{}] disappeared while persisting message [{}]",
                     conversationId, savedMessage.getId());
         }
 
-        log.info("Persisted message [{}] in conversation [{}] from sender [{}]",
+        log.info("Persisted encrypted message [{}] in conversation [{}] from sender [{}]",
                 savedMessage.getId(), conversationId, currentUserId);
 
-        MessageResponse response = MessageResponse.fromMessage(savedMessage);
+        MessageResponse response = MessageResponse.fromMessage(savedMessage, trimmedContent);
 
         // Broadcast to conversation topic in real time for subscribed participants
         try {
@@ -117,7 +131,9 @@ public class MessageService {
         Pageable pageable = PageRequest.of(sanitizedPage, sanitizedSize);
         Page<Message> messagePage = messageRepository.findByConversationIdOrderByCreatedAtDesc(conversationId, pageable);
 
-        Page<MessageResponse> responsePage = messagePage.map(MessageResponse::fromMessage);
+        // Every retrieval path goes through the same authenticated decryption.
+        Page<MessageResponse> responsePage = messagePage.map(message ->
+                MessageResponse.fromMessage(message, encryptionService.decrypt(message)));
         return PaginatedResponse.fromPage(responsePage);
     }
 }

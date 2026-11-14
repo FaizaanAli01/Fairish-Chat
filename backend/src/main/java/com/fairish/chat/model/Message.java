@@ -6,6 +6,7 @@ import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.index.CompoundIndexes;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
+import org.springframework.data.mongodb.core.mapping.Field;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -26,7 +27,43 @@ public class Message {
     @Indexed
     private String senderId;
 
+    /**
+     * Legacy plaintext content. New messages never populate this field; it is
+     * retained only so records written before encryption remain readable.
+     */
+    @Field(write = Field.Write.NON_NULL)
     private String content;
+
+    /**
+     * Base64 AES-256-GCM ciphertext (without the authentication tag).
+     */
+    @Field(write = Field.Write.NON_NULL)
+    private String ciphertext;
+
+    /**
+     * Base64 96-bit random nonce used for this ciphertext.
+     */
+    @Field(write = Field.Write.NON_NULL)
+    private String nonce;
+
+    /**
+     * Base64 128-bit GCM authentication tag.
+     */
+    @Field(write = Field.Write.NON_NULL)
+    private String authTag;
+
+    /**
+     * Encryption format version. Absent or 0 means a legacy plaintext record;
+     * 1 means AES-256-GCM with the fields above.
+     */
+    @Field(write = Field.Write.NON_NULL)
+    private Integer encryptionVersion;
+
+    /**
+     * Identifier of the key used to encrypt this message, enabling rotation.
+     */
+    @Field(write = Field.Write.NON_NULL)
+    private String keyId;
 
     @CreatedDate
     private Instant createdAt;
@@ -34,11 +71,18 @@ public class Message {
     public Message() {
     }
 
-    public Message(String id, String conversationId, String senderId, String content, Instant createdAt) {
+    public Message(String id, String conversationId, String senderId, String content,
+                   String ciphertext, String nonce, String authTag,
+                   Integer encryptionVersion, String keyId, Instant createdAt) {
         this.id = id;
         this.conversationId = conversationId;
         this.senderId = senderId;
         this.content = content;
+        this.ciphertext = ciphertext;
+        this.nonce = nonce;
+        this.authTag = authTag;
+        this.encryptionVersion = encryptionVersion;
+        this.keyId = keyId;
         this.createdAt = createdAt;
     }
 
@@ -80,6 +124,46 @@ public class Message {
         this.content = content;
     }
 
+    public String getCiphertext() {
+        return ciphertext;
+    }
+
+    public void setCiphertext(String ciphertext) {
+        this.ciphertext = ciphertext;
+    }
+
+    public String getNonce() {
+        return nonce;
+    }
+
+    public void setNonce(String nonce) {
+        this.nonce = nonce;
+    }
+
+    public String getAuthTag() {
+        return authTag;
+    }
+
+    public void setAuthTag(String authTag) {
+        this.authTag = authTag;
+    }
+
+    public Integer getEncryptionVersion() {
+        return encryptionVersion;
+    }
+
+    public void setEncryptionVersion(Integer encryptionVersion) {
+        this.encryptionVersion = encryptionVersion;
+    }
+
+    public String getKeyId() {
+        return keyId;
+    }
+
+    public void setKeyId(String keyId) {
+        this.keyId = keyId;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
@@ -106,6 +190,11 @@ public class Message {
         private String conversationId;
         private String senderId;
         private String content;
+        private String ciphertext;
+        private String nonce;
+        private String authTag;
+        private Integer encryptionVersion;
+        private String keyId;
         private Instant createdAt;
 
         public MessageBuilder id(String id) {
@@ -128,13 +217,39 @@ public class Message {
             return this;
         }
 
+        public MessageBuilder ciphertext(String ciphertext) {
+            this.ciphertext = ciphertext;
+            return this;
+        }
+
+        public MessageBuilder nonce(String nonce) {
+            this.nonce = nonce;
+            return this;
+        }
+
+        public MessageBuilder authTag(String authTag) {
+            this.authTag = authTag;
+            return this;
+        }
+
+        public MessageBuilder encryptionVersion(Integer encryptionVersion) {
+            this.encryptionVersion = encryptionVersion;
+            return this;
+        }
+
+        public MessageBuilder keyId(String keyId) {
+            this.keyId = keyId;
+            return this;
+        }
+
         public MessageBuilder createdAt(Instant createdAt) {
             this.createdAt = createdAt;
             return this;
         }
 
         public Message build() {
-            return new Message(id, conversationId, senderId, content, createdAt);
+            return new Message(id, conversationId, senderId, content, ciphertext, nonce,
+                    authTag, encryptionVersion, keyId, createdAt);
         }
     }
 }

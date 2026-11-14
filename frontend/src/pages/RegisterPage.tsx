@@ -208,7 +208,7 @@ export const RegisterPage: React.FC = () => {
         {/* Security Info */}
         <div className="flex items-center justify-center space-x-2 text-[11px] text-content-muted text-center">
           <ShieldCheck className="w-4 h-4 text-status-success flex-shrink-0" />
-          <span>Stateless JWT & BCrypt Encryption Protection</span>
+          <span>Secure Messaging Platform</span>
         </div>
       </div>
     </div>

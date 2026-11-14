@@ -25,6 +25,23 @@ app:
     # Development defaults only. Production must set CORS_ALLOWED_ORIGINS to the
     # exact frontend origin(s); see application-prod.yml.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,http://localhost:4173,http://127.0.0.1:5173}
+  encryption:
+    # Server-side encryption of message content and conversation previews at
+    # rest (AES-256-GCM). The key is never sent to the browser and has no
+    # default: when enabled, startup fails unless MESSAGE_ENCRYPTION_KEY is a
+    # Base64-encoded 32-byte key. See backend/README.md for key generation.
+    enabled: ${MESSAGE_ENCRYPTION_ENABLED:true}
+    active-key-id: ${MESSAGE_ENCRYPTION_KEY_ID:v1}
+    key: ${MESSAGE_ENCRYPTION_KEY:}
+    # Optional rotation support: comma-separated oldKeyId:base64Key entries.
+    # Previous keys are used only for decrypting records written before rotation.
+    previous-keys: ${MESSAGE_ENCRYPTION_PREVIOUS_KEYS:}
+    migration:
+      # Disabled by default. The utility never runs automatically; see
+      # backend/README.md for the dry-run and apply commands.
+      enabled: ${MESSAGE_ENCRYPTION_MIGRATION_ENABLED:false}
+      mode: ${MESSAGE_ENCRYPTION_MIGRATION_MODE:dry-run}
+      batch-size: ${MESSAGE_ENCRYPTION_MIGRATION_BATCH_SIZE:100}
   avatar:
     max-upload-bytes: ${AVATAR_MAX_UPLOAD_BYTES:5242880}
     output-size: ${AVATAR_OUTPUT_SIZE:512}

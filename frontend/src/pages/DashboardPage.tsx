@@ -20,6 +20,9 @@ import {
   ArrowLeft
 } from 'lucide-react';
 
+// Maximum composer height before it starts scrolling vertically.
+const COMPOSER_MAX_HEIGHT = 144;
+
 export const DashboardPage: React.FC = () => {
   const { user, token } = useAuth();
 
@@ -40,11 +43,36 @@ export const DashboardPage: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const messageContainerRef = useRef<HTMLDivElement | null>(null);
   const selectedConversationRef = useRef<Conversation | null>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Keep selectedConversationRef in sync with state for WebSocket message callbacks
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
   }, [selectedConversation]);
+
+  // Grow the composer with its content up to the maximum height, then scroll.
+  useEffect(() => {
+    const textarea = messageInputRef.current;
+    if (!textarea) return;
+
+    const previousScrollTop = textarea.scrollTop;
+    const wasAtBottom =
+      previousScrollTop + textarea.clientHeight >= textarea.scrollHeight - 1;
+
+    textarea.style.height = 'auto';
+    const nextHeight = Math.min(textarea.scrollHeight, COMPOSER_MAX_HEIGHT);
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = textarea.scrollHeight > COMPOSER_MAX_HEIGHT ? 'auto' : 'hidden';
+
+    // Collapsing the textarea to measure its content can reset scrollTop.
+    // Keep the caret visible when typing at the end, otherwise preserve the
+    // user's current scroll position while editing a long message.
+    if (textarea.scrollHeight > textarea.clientHeight) {
+      textarea.scrollTop = wasAtBottom ? textarea.scrollHeight : previousScrollTop;
+    } else {
+      textarea.scrollTop = 0;
+    }
+  }, [messageInput, selectedConversation?.id]);
 
   // Connect STOMP WebSocket client when JWT token is available; cleanly disconnect on unmount or token change
   useEffect(() => {
@@ -369,6 +397,14 @@ export const DashboardPage: React.FC = () => {
     }
   };
 
+  // Enter sends; Shift+Enter inserts a newline. Ignore Enter while an IME
+  // composition is active so non-Latin input methods can commit candidates.
+  const handleComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    void handleSendMessage();
+  };
+
   // Timestamp formatter
   const formatTime = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -513,13 +549,13 @@ export const DashboardPage: React.FC = () => {
                         className={`w-full flex flex-col min-w-0 ${isCurrentUser ? 'items-end' : 'items-start'}`}
                       >
                         <div
-                          className={`max-w-[85%] sm:max-w-md md:max-w-lg rounded-2xl px-4 py-2.5 shadow-sm min-w-0 transition-all ${
+                          className={`max-w-[85%] md:max-w-[75%] rounded-2xl px-4 py-2.5 shadow-sm min-w-0 transition-all ${
                             isCurrentUser
                               ? 'bg-violet-primary text-white rounded-br-sm shadow-violet-sm'
                               : 'bg-dark-panel border border-dark-border text-content-primary rounded-bl-sm'
                           }`}
                         >
-                          <p className="text-xs sm:text-sm whitespace-pre-wrap break-normal [overflow-wrap:anywhere] leading-relaxed">
+                          <p className="text-xs sm:text-sm whitespace-pre-wrap [overflow-wrap:anywhere] leading-relaxed">
                             {msg.content}
                           </p>
                         </div>
@@ -549,19 +585,21 @@ export const DashboardPage: React.FC = () => {
 
               {/* Message Composer Footer */}
               <div className="p-3 sm:p-4 border-t border-dark-border bg-dark-sidebar/95 backdrop-blur pb-[max(0.75rem,env(safe-area-inset-bottom))] flex-shrink-0">
-                <form onSubmit={handleSendMessage} className="flex items-center space-x-2 sm:space-x-3 w-full min-w-0">
+                <form onSubmit={handleSendMessage} className="flex items-end space-x-2 sm:space-x-3 w-full min-w-0">
                   <div className="relative flex-1 min-w-0">
-                    <input
-                      type="text"
+                    <textarea
+                      ref={messageInputRef}
+                      rows={1}
                       placeholder={`Message ${otherUser?.username || 'participant'}...`}
                       value={messageInput}
                       onChange={(e) => setMessageInput(e.target.value)}
+                      onKeyDown={handleComposerKeyDown}
                       maxLength={2000}
                       disabled={isSending}
-                      className="w-full px-4 py-2.5 sm:py-3 bg-dark-panel border border-dark-border rounded-xl text-xs sm:text-sm text-content-primary placeholder-content-muted focus:outline-none focus:border-violet-primary focus:ring-1 focus:ring-violet-primary transition-all pr-12 sm:pr-16 disabled:opacity-50"
+                      className="block w-full min-w-0 px-4 py-2.5 sm:py-3 bg-dark-panel border border-dark-border rounded-xl text-xs sm:text-sm text-content-primary placeholder-content-muted focus:outline-none focus:border-violet-primary focus:ring-1 focus:ring-violet-primary transition-all pr-12 sm:pr-16 disabled:opacity-50 resize-none max-h-36 overflow-y-auto whitespace-pre-wrap [overflow-wrap:anywhere] leading-relaxed"
                     />
                     {messageInput.length > 1800 && (
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-content-muted bg-dark-panel px-1 rounded">
+                      <span className="absolute right-3 bottom-2 pointer-events-none text-[10px] text-content-muted bg-dark-panel px-1 rounded">
                         {2000 - messageInput.length}
                       </span>
                     )}
