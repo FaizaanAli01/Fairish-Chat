@@ -1,5 +1,6 @@
 package com.fairish.chat.service;
 
+import com.fairish.chat.dto.MessageDeliveryResponse;
 import com.fairish.chat.dto.MessageResponse;
 import com.fairish.chat.dto.PaginatedResponse;
 import com.fairish.chat.dto.SendMessageRequest;
@@ -9,6 +10,7 @@ import com.fairish.chat.encryption.MessageEncryptionService;
 import com.fairish.chat.exception.MessageDecryptionException;
 import com.fairish.chat.model.Conversation;
 import com.fairish.chat.model.Message;
+import com.fairish.chat.model.MessageStatus;
 import com.fairish.chat.repository.MessageRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -51,6 +53,9 @@ class MessageServiceTest {
     private ConversationUnreadService conversationUnreadService;
 
     @Mock
+    private MessageReceiptService messageReceiptService;
+
+    @Mock
     private SimpMessagingTemplate messagingTemplate;
 
     private MessageEncryptionService encryptionService;
@@ -67,7 +72,7 @@ class MessageServiceTest {
         encryptionService = new MessageEncryptionService(properties);
 
         messageService = new MessageService(messageRepository, conversationService,
-                conversationUnreadService, messagingTemplate, encryptionService);
+                conversationUnreadService, messageReceiptService, messagingTemplate, encryptionService);
 
         sampleConversation = Conversation.builder()
                 .id("conv-123")
@@ -110,6 +115,9 @@ class MessageServiceTest {
         assertEquals("conv-123", response.getConversationId());
         assertEquals("user-1", response.getSenderId());
         assertEquals("Hello, World!", response.getContent());
+        assertEquals(MessageStatus.SENT, response.getStatus());
+        assertNull(response.getDeliveredAt());
+        assertNull(response.getSeenAt());
 
         ArgumentCaptor<Message> savedCaptor = ArgumentCaptor.forClass(Message.class);
         verify(messageRepository).save(savedCaptor.capture());
@@ -341,6 +349,66 @@ class MessageServiceTest {
                 messageService.getMessageHistory("conv-123", "user-1", 0, 20)
         );
         verifyNoInteractions(messageRepository);
+    }
+
+    @Test
+    @DisplayName("Should derive DELIVERED and SEEN status while still decrypting content")
+    void shouldDeriveReceiptStatusWithoutBreakingEncryption() {
+        when(conversationService.getConversationAndValidateParticipant("conv-123", "user-1"))
+                .thenReturn(sampleConversation);
+
+        Instant deliveredAt = Instant.parse("2026-01-01T10:00:00Z");
+        Instant seenAt = Instant.parse("2026-01-01T10:01:00Z");
+
+        Message delivered = encryptedMessage("msg-delivered", encryptionService.encrypt("Delivered"));
+        delivered.setDeliveredAt(deliveredAt);
+
+        Message seen = encryptedMessage("msg-seen", encryptionService.encrypt("Seen"));
+        seen.setDeliveredAt(deliveredAt);
+        seen.setSeenAt(seenAt);
+
+        when(messageRepository.findByConversationIdOrderByCreatedAtDesc(eq("conv-123"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(seen, delivered)));
+
+        PaginatedResponse<MessageResponse> response = messageService.getMessageHistory("conv-123", "user-1", 0, 20);
+
+        assertEquals(MessageStatus.SEEN, response.getContent().get(0).getStatus());
+        assertEquals(seenAt, response.getContent().get(0).getSeenAt());
+        assertEquals("Seen", response.getContent().get(0).getContent());
+        assertEquals(MessageStatus.DELIVERED, response.getContent().get(1).getStatus());
+        assertEquals(deliveredAt, response.getContent().get(1).getDeliveredAt());
+        assertEquals("Delivered", response.getContent().get(1).getContent());
+    }
+
+    @Test
+    @DisplayName("Should delegate delivery acknowledgement using the validated other participant")
+    void shouldDelegateDeliveryAcknowledgement() {
+        when(conversationService.getConversationAndValidateParticipant("conv-123", "user-2"))
+                .thenReturn(sampleConversation);
+        MessageDeliveryResponse expected = new MessageDeliveryResponse(
+                "conv-123", MessageStatus.DELIVERED, List.of("msg-1"), Instant.now());
+        when(messageReceiptService.markDelivered(
+                eq("conv-123"), eq("user-2"), eq("user-1"), eq(List.of("msg-1"))))
+                .thenReturn(expected);
+
+        MessageDeliveryResponse response = messageService.markDelivered(
+                "conv-123", "user-2", List.of("msg-1"));
+
+        assertSame(expected, response);
+        verify(conversationService).getConversationAndValidateParticipant("conv-123", "user-2");
+    }
+
+    @Test
+    @DisplayName("Should reject delivery acknowledgement from a non-participant")
+    void shouldRejectDeliveryAcknowledgementFromNonParticipant() {
+        when(conversationService.getConversationAndValidateParticipant("conv-123", "intruder"))
+                .thenThrow(new AccessDeniedException("You are not a participant in this conversation"));
+
+        assertThrows(AccessDeniedException.class, () ->
+                messageService.markDelivered("conv-123", "intruder", List.of("msg-1"))
+        );
+
+        verifyNoInteractions(messageReceiptService);
     }
 
     private Message encryptedMessage(String id, EncryptedPayload payload) {

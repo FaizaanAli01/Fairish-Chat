@@ -14,6 +14,7 @@ import com.fairish.chat.security.JwtAuthenticationEntryPoint;
 import com.fairish.chat.security.JwtService;
 import com.fairish.chat.service.ConversationService;
 import com.fairish.chat.service.ConversationUnreadService;
+import com.fairish.chat.service.MessageReceiptService;
 import com.fairish.chat.service.MessageService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -80,6 +81,9 @@ class MessageEncryptionFlowTest {
 
     @MockBean
     private ConversationUnreadService conversationUnreadService;
+
+    @MockBean
+    private MessageReceiptService messageReceiptService;
 
     @MockBean
     private SimpMessagingTemplate messagingTemplate;

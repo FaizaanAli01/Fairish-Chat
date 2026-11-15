@@ -1,5 +1,7 @@
 package com.fairish.chat.controller;
 
+import com.fairish.chat.dto.MessageDeliveryRequest;
+import com.fairish.chat.dto.MessageDeliveryResponse;
 import com.fairish.chat.dto.MessageResponse;
 import com.fairish.chat.dto.PaginatedResponse;
 import com.fairish.chat.dto.SendMessageRequest;
@@ -35,6 +37,23 @@ public class MessageController {
         String currentUserId = extractUserId(userDetails);
         MessageResponse response = messageService.sendMessage(conversationId, currentUserId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    /**
+     * Acknowledges device delivery for one or more incoming messages. The
+     * authenticated user is always treated as the recipient; identifiers that
+     * do not belong to this conversation or were not sent by the other
+     * participant are ignored.
+     */
+    @PostMapping("/delivered")
+    public ResponseEntity<MessageDeliveryResponse> markDelivered(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable("conversationId") String conversationId,
+            @Valid @RequestBody MessageDeliveryRequest request) {
+        String currentUserId = extractUserId(userDetails);
+        MessageDeliveryResponse response = messageService.markDelivered(
+                conversationId, currentUserId, request.getMessageIds());
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping

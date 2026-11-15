@@ -1,5 +1,6 @@
 package com.fairish.chat.service;
 
+import com.fairish.chat.dto.MessageDeliveryResponse;
 import com.fairish.chat.dto.MessageResponse;
 import com.fairish.chat.dto.PaginatedResponse;
 import com.fairish.chat.dto.SendMessageRequest;
@@ -8,6 +9,7 @@ import com.fairish.chat.encryption.MessageEncryptionService;
 import com.fairish.chat.model.Conversation;
 import com.fairish.chat.model.Message;
 import com.fairish.chat.repository.MessageRepository;
+import com.fairish.chat.util.AfterCommit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -18,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 
 @Service
 public class MessageService {
@@ -27,17 +30,20 @@ public class MessageService {
     private final MessageRepository messageRepository;
     private final ConversationService conversationService;
     private final ConversationUnreadService conversationUnreadService;
+    private final MessageReceiptService messageReceiptService;
     private final SimpMessagingTemplate messagingTemplate;
     private final MessageEncryptionService encryptionService;
 
     public MessageService(MessageRepository messageRepository,
                           ConversationService conversationService,
                           ConversationUnreadService conversationUnreadService,
+                          MessageReceiptService messageReceiptService,
                           SimpMessagingTemplate messagingTemplate,
                           MessageEncryptionService encryptionService) {
         this.messageRepository = messageRepository;
         this.conversationService = conversationService;
         this.conversationUnreadService = conversationUnreadService;
+        this.messageReceiptService = messageReceiptService;
         this.messagingTemplate = messagingTemplate;
         this.encryptionService = encryptionService;
     }
@@ -92,27 +98,48 @@ public class MessageService {
                 savedMessage.getId(), conversationId, currentUserId);
 
         MessageResponse response = MessageResponse.fromMessage(savedMessage, trimmedContent);
+        String destination = "/topic/conversations/" + conversationId;
 
-        // Broadcast to conversation topic in real time for subscribed participants
-        try {
-            String destination = "/topic/conversations/" + conversationId;
-            messagingTemplate.convertAndSend(destination, response);
-            log.info("Broadcasted message [{}] to destination [{}]", savedMessage.getId(), destination);
-        } catch (Exception ex) {
-            log.error("Failed to broadcast message [{}] to conversation [{}]: {}",
-                    savedMessage.getId(), conversationId, ex.getMessage(), ex);
-        }
+        // Publish only after the message and unread counter are committed.
+        // Broadcasting before commit lets a recipient acknowledge a message
+        // that is not yet readable, which would lose the DELIVERED update.
+        AfterCommit.run(() -> {
+            try {
+                messagingTemplate.convertAndSend(destination, response);
+                log.info("Broadcasted message [{}] to destination [{}]", savedMessage.getId(), destination);
+            } catch (Exception ex) {
+                log.error("Failed to broadcast message [{}] to conversation [{}]: {}",
+                        savedMessage.getId(), conversationId, ex.getMessage(), ex);
+            }
 
-        // Push the server-side count (not a client-side increment) to every
-        // session of the recipient so duplicates and reconnects stay idempotent.
-        if (updatedConversation != null && recipientId != null) {
-            conversationUnreadService.notifyUnreadCount(
-                    recipientId,
-                    conversationId,
-                    updatedConversation.getUnreadCount(recipientId));
-        }
+            // Push the server-side count (not a client-side increment) to every
+            // session of the recipient so duplicates and reconnects stay idempotent.
+            if (updatedConversation != null && recipientId != null) {
+                conversationUnreadService.notifyUnreadCount(
+                        recipientId,
+                        conversationId,
+                        updatedConversation.getUnreadCount(recipientId));
+            }
+        });
 
         return response;
+    }
+
+    /**
+     * Acknowledges that the authenticated recipient's device has received the
+     * given messages. Conversation access is validated through the same
+     * participant/contact primitive used by every other message path; the
+     * receipt service then ignores foreign or malformed identifiers.
+     */
+    @Transactional
+    public MessageDeliveryResponse markDelivered(String conversationId,
+                                                 String currentUserId,
+                                                 List<String> messageIds) {
+        Conversation conversation = conversationService.getConversationAndValidateParticipant(
+                conversationId, currentUserId);
+        String senderId = conversation.getOtherParticipantId(currentUserId);
+        return messageReceiptService.markDelivered(
+                conversationId, currentUserId, senderId, messageIds);
     }
 
     /**

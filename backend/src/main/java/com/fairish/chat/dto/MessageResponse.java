@@ -1,6 +1,7 @@
 package com.fairish.chat.dto;
 
 import com.fairish.chat.model.Message;
+import com.fairish.chat.model.MessageStatus;
 
 import java.time.Instant;
 
@@ -11,16 +12,23 @@ public class MessageResponse {
     private String senderId;
     private String content;
     private Instant createdAt;
+    private Instant deliveredAt;
+    private Instant seenAt;
+    private MessageStatus status;
 
     public MessageResponse() {
     }
 
-    public MessageResponse(String id, String conversationId, String senderId, String content, Instant createdAt) {
+    public MessageResponse(String id, String conversationId, String senderId, String content,
+                           Instant createdAt, Instant deliveredAt, Instant seenAt, MessageStatus status) {
         this.id = id;
         this.conversationId = conversationId;
         this.senderId = senderId;
         this.content = content;
         this.createdAt = createdAt;
+        this.deliveredAt = deliveredAt;
+        this.seenAt = seenAt;
+        this.status = status;
     }
 
     /**
@@ -37,6 +45,9 @@ public class MessageResponse {
                 .senderId(message.getSenderId())
                 .content(decryptedContent)
                 .createdAt(message.getCreatedAt())
+                .deliveredAt(message.getDeliveredAt())
+                .seenAt(message.getSeenAt())
+                .status(MessageStatus.fromMessage(message))
                 .build();
     }
 
@@ -84,12 +95,39 @@ public class MessageResponse {
         this.createdAt = createdAt;
     }
 
+    public Instant getDeliveredAt() {
+        return deliveredAt;
+    }
+
+    public void setDeliveredAt(Instant deliveredAt) {
+        this.deliveredAt = deliveredAt;
+    }
+
+    public Instant getSeenAt() {
+        return seenAt;
+    }
+
+    public void setSeenAt(Instant seenAt) {
+        this.seenAt = seenAt;
+    }
+
+    public MessageStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(MessageStatus status) {
+        this.status = status;
+    }
+
     public static class MessageResponseBuilder {
         private String id;
         private String conversationId;
         private String senderId;
         private String content;
         private Instant createdAt;
+        private Instant deliveredAt;
+        private Instant seenAt;
+        private MessageStatus status;
 
         public MessageResponseBuilder id(String id) {
             this.id = id;
@@ -116,8 +154,24 @@ public class MessageResponse {
             return this;
         }
 
+        public MessageResponseBuilder deliveredAt(Instant deliveredAt) {
+            this.deliveredAt = deliveredAt;
+            return this;
+        }
+
+        public MessageResponseBuilder seenAt(Instant seenAt) {
+            this.seenAt = seenAt;
+            return this;
+        }
+
+        public MessageResponseBuilder status(MessageStatus status) {
+            this.status = status;
+            return this;
+        }
+
         public MessageResponse build() {
-            return new MessageResponse(id, conversationId, senderId, content, createdAt);
+            return new MessageResponse(id, conversationId, senderId, content, createdAt,
+                    deliveredAt, seenAt, status);
         }
     }
 }

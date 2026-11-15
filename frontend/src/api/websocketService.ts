@@ -1,6 +1,6 @@
 import { Client, StompSubscription, IMessage } from '@stomp/stompjs';
 import { WS_URL } from '../config/env';
-import { Message } from '../types/message';
+import { Message, MessageReceiptUpdate } from '../types/message';
 import { UnreadCountUpdate } from '../types/conversation';
 
 /**
@@ -25,6 +25,8 @@ class WebSocketService {
   private pendingSubscriptions: Map<string, (message: Message) => void> = new Map();
   private unreadSubscription: StompSubscription | null = null;
   private unreadCallback: ((update: UnreadCountUpdate) => void) | null = null;
+  private receiptSubscription: StompSubscription | null = null;
+  private receiptCallback: ((update: MessageReceiptUpdate) => void) | null = null;
   private connectCallbacks: Set<() => void> = new Set();
   private disconnectCallbacks: Set<() => void> = new Set();
   private errorCallbacks: Set<(error: any) => void> = new Set();
@@ -68,6 +70,7 @@ class WebSocketService {
           this.doSubscribe(conversationId, callback);
         });
         this.doSubscribeUnread();
+        this.doSubscribeReceipts();
 
         this.connectCallbacks.forEach((cb) => {
           try {
@@ -177,6 +180,50 @@ class WebSocketService {
     }
   }
 
+  /**
+   * Subscribes to the authenticated user's private receipt queue. The backend
+   * only sends DELIVERED/SEEN events for messages this user originally sent,
+   * and never includes message content.
+   */
+  public subscribeToReceipts(onUpdate: (update: MessageReceiptUpdate) => void): () => void {
+    this.receiptCallback = onUpdate;
+    this.doSubscribeReceipts();
+
+    return () => {
+      if (this.receiptCallback === onUpdate) {
+        this.receiptCallback = null;
+        this.unsubscribeReceipts();
+      }
+    };
+  }
+
+  private doSubscribeReceipts(): void {
+    if (!this.client || !this.client.connected || !this.receiptCallback) return;
+
+    this.unsubscribeReceipts();
+    try {
+      this.receiptSubscription = this.client.subscribe('/user/queue/receipts', (stompMessage: IMessage) => {
+        try {
+          const update: MessageReceiptUpdate = JSON.parse(stompMessage.body);
+          this.receiptCallback?.(update);
+        } catch (e) {
+          console.error('[STOMP] Failed to parse receipt update:', e, stompMessage.body);
+        }
+      });
+    } catch (err) {
+      console.error('[STOMP] Failed to subscribe to receipts:', err);
+    }
+  }
+
+  private unsubscribeReceipts(): void {
+    if (this.receiptSubscription) {
+      try {
+        this.receiptSubscription.unsubscribe();
+      } catch {}
+      this.receiptSubscription = null;
+    }
+  }
+
   private doSubscribe(conversationId: string, onMessage: (message: Message) => void): void {
     if (!this.client || !this.client.connected) return;
 
@@ -258,6 +305,7 @@ class WebSocketService {
     this.subscriptions.clear();
     this.pendingSubscriptions.clear();
     this.unsubscribeUnread();
+    this.unsubscribeReceipts();
 
     if (this.client) {
       try {

@@ -8,6 +8,7 @@ import com.fairish.chat.model.Conversation;
 import com.fairish.chat.model.User;
 import com.fairish.chat.repository.ConversationRepository;
 import com.fairish.chat.repository.UserRepository;
+import com.fairish.chat.util.AfterCommit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
@@ -28,17 +29,20 @@ public class ConversationService {
     private final UserRepository userRepository;
     private final ContactService contactService;
     private final ConversationUnreadService conversationUnreadService;
+    private final MessageReceiptService messageReceiptService;
     private final MessageEncryptionService encryptionService;
 
     public ConversationService(ConversationRepository conversationRepository,
                                UserRepository userRepository,
                                ContactService contactService,
                                ConversationUnreadService conversationUnreadService,
+                               MessageReceiptService messageReceiptService,
                                MessageEncryptionService encryptionService) {
         this.conversationRepository = conversationRepository;
         this.userRepository = userRepository;
         this.contactService = contactService;
         this.conversationUnreadService = conversationUnreadService;
+        this.messageReceiptService = messageReceiptService;
         this.encryptionService = encryptionService;
     }
 
@@ -166,9 +170,18 @@ public class ConversationService {
         String otherId = effective.getOtherParticipantId(currentUserId);
         User otherUser = otherId != null ? userRepository.findById(otherId).orElse(null) : null;
 
+        // Opening the conversation also means every message sent by the other
+        // participant has been delivered and viewed. This reuses the existing
+        // read endpoint instead of adding a second seen API.
+        if (otherId != null) {
+            messageReceiptService.markConversationSeen(conversationId, currentUserId, otherId);
+        }
+
         // Keep every open session of the same user in sync (including the one
-        // that did not initiate the read action).
-        conversationUnreadService.notifyUnreadCount(currentUserId, conversationId, 0);
+        // that did not initiate the read action). Publish after commit so a
+        // rolled-back read cannot reset the badge.
+        AfterCommit.run(() ->
+                conversationUnreadService.notifyUnreadCount(currentUserId, conversationId, 0));
 
         return mapToResponse(effective, currentUserId, otherUser);
     }

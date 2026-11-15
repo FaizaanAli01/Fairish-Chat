@@ -6,7 +6,11 @@ import { conversationApi } from '../api/conversationApi';
 import { messageApi } from '../api/messageApi';
 import { websocketService } from '../api/websocketService';
 import { Conversation, UnreadCountUpdate } from '../types/conversation';
-import { Message } from '../types/message';
+import {
+  Message,
+  MessageReceiptUpdate,
+  resolveMessageStatus,
+} from '../types/message';
 import { PublicUser } from '../types/user';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { ErrorMessage } from '../components/ErrorMessage';
@@ -17,11 +21,21 @@ import {
   RefreshCw,
   Clock,
   CheckCircle2,
-  ArrowLeft
+  ArrowLeft,
+  Check,
+  CheckCheck,
 } from 'lucide-react';
 
 // Maximum composer height before it starts scrolling vertically.
 const COMPOSER_MAX_HEIGHT = 144;
+
+// Parses a server timestamp for safe ordering comparisons. ISO strings must not
+// be compared lexicographically because fractional-second digits are optional.
+const toMillis = (value: string | null | undefined): number => {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
 
 export const DashboardPage: React.FC = () => {
   const { user, token } = useAuth();
@@ -44,6 +58,10 @@ export const DashboardPage: React.FC = () => {
   const messageContainerRef = useRef<HTMLDivElement | null>(null);
   const selectedConversationRef = useRef<Conversation | null>(null);
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
+  // Batched delivery acknowledgements, grouped by conversation. Keeping this in
+  // a ref avoids re-rendering for every incoming message.
+  const pendingDeliveryAcksRef = useRef<Map<string, Set<string>>>(new Map());
+  const deliveryTimerRef = useRef<number | null>(null);
 
   // Keep selectedConversationRef in sync with state for WebSocket message callbacks
   useEffect(() => {
@@ -91,8 +109,62 @@ export const DashboardPage: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior });
   };
 
+  // Send all queued delivery acknowledgements, one request per conversation.
+  const flushDeliveryAcks = useCallback(async () => {
+    const pending = pendingDeliveryAcksRef.current;
+    pendingDeliveryAcksRef.current = new Map();
+
+    for (const [conversationId, ids] of pending.entries()) {
+      if (ids.size === 0) continue;
+      try {
+        await messageApi.markDelivered(conversationId, Array.from(ids));
+      } catch (err) {
+        // Receipts are reconciled from history after a reconnect, so a failed
+        // acknowledgement is recoverable and must not surface as a chat error.
+        console.error('Failed to acknowledge message delivery:', err);
+      }
+    }
+  }, []);
+
+  // Coalesce rapid incoming messages into one request per conversation.
+  const queueDeliveryAcks = useCallback((conversationId: string, messageIds: string[]) => {
+    if (!conversationId || messageIds.length === 0) return;
+
+    let pending = pendingDeliveryAcksRef.current.get(conversationId);
+    if (!pending) {
+      pending = new Set<string>();
+      pendingDeliveryAcksRef.current.set(conversationId, pending);
+    }
+    messageIds.forEach((id) => {
+      if (id) pending!.add(id);
+    });
+
+    if (deliveryTimerRef.current !== null) return;
+    deliveryTimerRef.current = window.setTimeout(() => {
+      deliveryTimerRef.current = null;
+      void flushDeliveryAcks();
+    }, 400);
+  }, [flushDeliveryAcks]);
+
+  // Cancel a pending batch on unmount; the next reconnect reconciliation will
+  // re-send anything that was not acknowledged.
+  useEffect(() => {
+    return () => {
+      if (deliveryTimerRef.current !== null) {
+        window.clearTimeout(deliveryTimerRef.current);
+        deliveryTimerRef.current = null;
+      }
+    };
+  }, []);
+
   // Real-time message handler
   const handleIncomingMessage = useCallback((incoming: Message) => {
+    // Acknowledge every message from the other participant, including ones in
+    // inactive conversations: the client is subscribed to all conversations.
+    if (user?.id && incoming.senderId !== user.id) {
+      queueDeliveryAcks(incoming.conversationId, [incoming.id]);
+    }
+
     // If incoming message belongs to the currently active conversation, append it
     if (selectedConversationRef.current && incoming.conversationId === selectedConversationRef.current.id) {
       setMessages((prev) => {
@@ -128,7 +200,7 @@ export const DashboardPage: React.FC = () => {
       }
       return updated;
     });
-  }, []);
+  }, [queueDeliveryAcks, user?.id]);
 
   // Compute a unique, sorted comma-separated string of all conversation IDs to monitor.
   const subscribedConversationIdsKey = Array.from(
@@ -199,9 +271,12 @@ export const DashboardPage: React.FC = () => {
           setCurrentPage(0);
         }
       }
+
+      return data;
     } catch (err: any) {
       console.error('Failed to load conversations:', err);
       setError(err.response?.data?.message || 'Failed to load conversations. Please try again.');
+      return null;
     } finally {
       setIsLoadingConversations(false);
     }
@@ -209,14 +284,6 @@ export const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     fetchConversations();
-  }, [fetchConversations]);
-
-  // Re-sync persisted unread state after a reconnect, since messages may have
-  // been sent while the socket was down.
-  useEffect(() => {
-    return websocketService.onConnect(() => {
-      fetchConversations();
-    });
   }, [fetchConversations]);
 
   // Authoritative unread updates for every conversation of this user.
@@ -242,6 +309,63 @@ export const DashboardPage: React.FC = () => {
     return websocketService.subscribeToUnread(handleUnreadUpdate);
   }, [handleUnreadUpdate]);
 
+  // Private receipt events for messages this user sent. Updates are monotonic:
+  // a late DELIVERED event can never downgrade a SEEN message.
+  const handleReceiptUpdate = useCallback((update: MessageReceiptUpdate) => {
+    setMessages((prev) => {
+      if (prev.length === 0) return prev;
+
+      let changed = false;
+      const next = prev.map((msg) => {
+        if (msg.conversationId !== update.conversationId || msg.senderId !== user?.id) {
+          return msg;
+        }
+
+        if (update.status === 'DELIVERED') {
+          if (!update.messageIds || !update.messageIds.includes(msg.id)) return msg;
+          if (resolveMessageStatus(msg) === 'SEEN') return msg;
+
+          const occurredAt = toMillis(update.occurredAt);
+          const existingDeliveredAt = toMillis(msg.deliveredAt);
+          if (resolveMessageStatus(msg) === 'DELIVERED' && existingDeliveredAt >= occurredAt) {
+            return msg;
+          }
+
+          const deliveredAt =
+            existingDeliveredAt > occurredAt ? msg.deliveredAt! : update.occurredAt;
+          changed = true;
+          return { ...msg, deliveredAt, status: 'DELIVERED' as const };
+        }
+
+        if (update.status === 'SEEN') {
+          // SEEN is a conversation-level watermark: every outgoing message
+          // created at or before the server timestamp is considered seen.
+          const occurredAt = toMillis(update.occurredAt);
+          if (toMillis(msg.createdAt) > occurredAt) return msg;
+          if (resolveMessageStatus(msg) === 'SEEN' && msg.seenAt) return msg;
+
+          const existingSeenAt = toMillis(msg.seenAt);
+          const seenAt = existingSeenAt > occurredAt ? msg.seenAt! : update.occurredAt;
+          changed = true;
+          return {
+            ...msg,
+            deliveredAt: msg.deliveredAt ?? update.occurredAt,
+            seenAt,
+            status: 'SEEN' as const,
+          };
+        }
+
+        return msg;
+      });
+
+      return changed ? next : prev;
+    });
+  }, [user?.id]);
+
+  useEffect(() => {
+    return websocketService.subscribeToReceipts(handleReceiptUpdate);
+  }, [handleReceiptUpdate]);
+
   // Contact mutations (accept, remove, ...) change who may chat; reload the
   // conversation list so the sidebar and open chat reflect the new access.
   const handleContactsChanged = useCallback(async () => {
@@ -259,6 +383,14 @@ export const DashboardPage: React.FC = () => {
       const chronological = [...data.content].reverse();
       setMessages(chronological);
       setHasMore(data.hasMore);
+
+      // Messages received while this device was offline are only SENT until a
+      // history fetch observes them, so acknowledge them in one batch now.
+      const undeliveredIds = chronological
+        .filter((m) => m.senderId !== user?.id && !m.deliveredAt)
+        .map((m) => m.id);
+      queueDeliveryAcks(conversationId, undeliveredIds);
+
       setTimeout(() => scrollToBottom('auto'), 50);
     } catch (err: any) {
       console.error('Failed to load messages:', err);
@@ -266,7 +398,40 @@ export const DashboardPage: React.FC = () => {
     } finally {
       setIsLoadingMessages(false);
     }
-  }, []);
+  }, [queueDeliveryAcks, user?.id]);
+
+  // After a reconnect, re-fetch conversations and acknowledge anything that
+  // was persisted while the socket was down. Only the latest page per
+  // conversation is needed: older messages were already acknowledged.
+  const reconcileAfterReconnect = useCallback(async () => {
+    const data = await fetchConversations();
+    if (!data) return;
+
+    await Promise.allSettled(
+      data.map(async (conversation) => {
+        const latest = await messageApi.getMessages(conversation.id, 0, 30);
+        const undeliveredIds = latest.content
+          .filter((m) => m.senderId !== user?.id && !m.deliveredAt)
+          .map((m) => m.id);
+        if (undeliveredIds.length > 0) {
+          await messageApi.markDelivered(conversation.id, undeliveredIds);
+        }
+      })
+    );
+
+    // Reload the open conversation so missed messages and authoritative
+    // receipt timestamps replace the stale local copy.
+    const active = selectedConversationRef.current;
+    if (active) {
+      await loadConversationMessages(active.id);
+    }
+  }, [fetchConversations, loadConversationMessages, user?.id]);
+
+  useEffect(() => {
+    return websocketService.onConnect(() => {
+      void reconcileAfterReconnect();
+    });
+  }, [reconcileAfterReconnect]);
 
   // When selected conversation changes
   const handleSelectConversation = (conversation: Conversation) => {
@@ -542,6 +707,7 @@ export const DashboardPage: React.FC = () => {
                   /* Messages List */
                   messages.map((msg) => {
                     const isCurrentUser = msg.senderId === user?.id;
+                    const status = resolveMessageStatus(msg);
 
                     return (
                       <div
@@ -559,9 +725,24 @@ export const DashboardPage: React.FC = () => {
                             {msg.content}
                           </p>
                         </div>
-                        <span className="text-[10px] text-content-muted mt-1 px-1.5 select-none flex-shrink-0">
-                          {formatTime(msg.createdAt)}
-                        </span>
+                        <div
+                          className={`flex items-center gap-1 mt-1 px-1.5 select-none flex-shrink-0 ${
+                            isCurrentUser ? 'justify-end' : ''
+                          }`}
+                        >
+                          <span className="text-[10px] text-content-muted">
+                            {formatTime(msg.createdAt)}
+                          </span>
+                          {isCurrentUser && status === 'SENT' && (
+                            <Check className="w-3 h-3 text-content-muted" aria-label="Sent" />
+                          )}
+                          {isCurrentUser && status === 'DELIVERED' && (
+                            <CheckCheck className="w-3.5 h-3.5 text-content-muted" aria-label="Delivered" />
+                          )}
+                          {isCurrentUser && status === 'SEEN' && (
+                            <CheckCheck className="w-3.5 h-3.5 text-blue-400" aria-label="Seen" />
+                          )}
+                        </div>
                       </div>
                     );
                   })

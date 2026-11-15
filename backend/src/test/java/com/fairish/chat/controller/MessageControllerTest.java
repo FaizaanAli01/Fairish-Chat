@@ -1,8 +1,11 @@
 package com.fairish.chat.controller;
 
+import com.fairish.chat.dto.MessageDeliveryRequest;
+import com.fairish.chat.dto.MessageDeliveryResponse;
 import com.fairish.chat.dto.MessageResponse;
 import com.fairish.chat.dto.PaginatedResponse;
 import com.fairish.chat.dto.SendMessageRequest;
+import com.fairish.chat.model.MessageStatus;
 import com.fairish.chat.model.User;
 import com.fairish.chat.repository.UserRepository;
 import com.fairish.chat.security.CustomUserDetailsService;
@@ -139,6 +142,53 @@ class MessageControllerTest {
 
         mockMvc.perform(get("/api/conversations/conv-123/messages")
                         .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"));
+    }
+
+    @Test
+    @WithMockUser(username = "alice")
+    @DisplayName("POST /api/conversations/{convId}/messages/delivered should acknowledge incoming messages")
+    void shouldMarkMessagesDelivered() throws Exception {
+        MessageDeliveryRequest request = new MessageDeliveryRequest(List.of("msg-1", "msg-2"));
+        MessageDeliveryResponse response = new MessageDeliveryResponse(
+                "conv-123", MessageStatus.DELIVERED, List.of("msg-1", "msg-2"), Instant.now());
+        when(messageService.markDelivered(eq("conv-123"), eq("current-user-id"), eq(List.of("msg-1", "msg-2"))))
+                .thenReturn(response);
+
+        mockMvc.perform(post("/api/conversations/conv-123/messages/delivered")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.conversationId").value("conv-123"))
+                .andExpect(jsonPath("$.status").value("DELIVERED"))
+                .andExpect(jsonPath("$.deliveredMessageIds.length()").value(2));
+    }
+
+    @Test
+    @WithMockUser(username = "alice")
+    @DisplayName("POST /api/conversations/{convId}/messages/delivered should reject empty message IDs")
+    void shouldRejectEmptyDeliveryAcknowledgement() throws Exception {
+        MessageDeliveryRequest request = new MessageDeliveryRequest(List.of());
+
+        mockMvc.perform(post("/api/conversations/conv-123/messages/delivered")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Validation Failed"));
+    }
+
+    @Test
+    @WithMockUser(username = "alice")
+    @DisplayName("POST /api/conversations/{convId}/messages/delivered should return 403 for non-participants")
+    void shouldRejectDeliveryForNonParticipant() throws Exception {
+        MessageDeliveryRequest request = new MessageDeliveryRequest(List.of("msg-1"));
+        when(messageService.markDelivered(eq("conv-123"), eq("current-user-id"), anyList()))
+                .thenThrow(new AccessDeniedException("You are not a participant in this conversation"));
+
+        mockMvc.perform(post("/api/conversations/conv-123/messages/delivered")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error").value("Forbidden"));
     }

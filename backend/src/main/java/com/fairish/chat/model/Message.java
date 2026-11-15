@@ -68,12 +68,27 @@ public class Message {
     @CreatedDate
     private Instant createdAt;
 
+    /**
+     * When the recipient's device acknowledged receipt. Null means the message
+     * is still SENT. This is intentionally independent of {@link #seenAt}: a
+     * seen message must also have been delivered, but delivery can happen while
+     * the conversation is closed.
+     */
+    private Instant deliveredAt;
+
+    /**
+     * When the recipient opened the conversation and viewed this message. Null
+     * when the message has not been seen yet.
+     */
+    private Instant seenAt;
+
     public Message() {
     }
 
     public Message(String id, String conversationId, String senderId, String content,
                    String ciphertext, String nonce, String authTag,
-                   Integer encryptionVersion, String keyId, Instant createdAt) {
+                   Integer encryptionVersion, String keyId, Instant createdAt,
+                   Instant deliveredAt, Instant seenAt) {
         this.id = id;
         this.conversationId = conversationId;
         this.senderId = senderId;
@@ -84,6 +99,8 @@ public class Message {
         this.encryptionVersion = encryptionVersion;
         this.keyId = keyId;
         this.createdAt = createdAt;
+        this.deliveredAt = deliveredAt;
+        this.seenAt = seenAt;
     }
 
     public static MessageBuilder builder() {
@@ -172,6 +189,22 @@ public class Message {
         this.createdAt = createdAt;
     }
 
+    public Instant getDeliveredAt() {
+        return deliveredAt;
+    }
+
+    public void setDeliveredAt(Instant deliveredAt) {
+        this.deliveredAt = deliveredAt;
+    }
+
+    public Instant getSeenAt() {
+        return seenAt;
+    }
+
+    public void setSeenAt(Instant seenAt) {
+        this.seenAt = seenAt;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -196,6 +229,8 @@ public class Message {
         private Integer encryptionVersion;
         private String keyId;
         private Instant createdAt;
+        private Instant deliveredAt;
+        private Instant seenAt;
 
         public MessageBuilder id(String id) {
             this.id = id;
@@ -247,9 +282,19 @@ public class Message {
             return this;
         }
 
+        public MessageBuilder deliveredAt(Instant deliveredAt) {
+            this.deliveredAt = deliveredAt;
+            return this;
+        }
+
+        public MessageBuilder seenAt(Instant seenAt) {
+            this.seenAt = seenAt;
+            return this;
+        }
+
         public Message build() {
             return new Message(id, conversationId, senderId, content, ciphertext, nonce,
-                    authTag, encryptionVersion, keyId, createdAt);
+                    authTag, encryptionVersion, keyId, createdAt, deliveredAt, seenAt);
         }
     }
 }

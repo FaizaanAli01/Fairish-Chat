@@ -43,6 +43,9 @@ class ConversationServiceTest {
     @Mock
     private ConversationUnreadService conversationUnreadService;
 
+    @Mock
+    private MessageReceiptService messageReceiptService;
+
     private MessageEncryptionService encryptionService;
     private ConversationService conversationService;
 
@@ -58,7 +61,7 @@ class ConversationServiceTest {
         encryptionProperties.setKey("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpBQkNERUY=");
         encryptionService = new MessageEncryptionService(encryptionProperties);
         conversationService = new ConversationService(conversationRepository, userRepository,
-                contactService, conversationUnreadService, encryptionService);
+                contactService, conversationUnreadService, messageReceiptService, encryptionService);
 
         user1 = User.builder()
                 .id("user-1-id")
@@ -280,6 +283,7 @@ class ConversationServiceTest {
         assertEquals(0, response.getUnreadCount());
         verify(conversationUnreadService).resetUnread("conv-123", "user-1-id");
         verify(conversationUnreadService).notifyUnreadCount("user-1-id", "conv-123", 0);
+        verify(messageReceiptService).markConversationSeen("conv-123", "user-1-id", "user-2-id");
     }
 
     @Test
@@ -293,6 +297,7 @@ class ConversationServiceTest {
 
         verify(conversationUnreadService, never()).resetUnread(anyString(), anyString());
         verify(conversationUnreadService, never()).notifyUnreadCount(anyString(), anyString(), anyInt());
+        verify(messageReceiptService, never()).markConversationSeen(anyString(), anyString(), any());
     }
 
     @Test
