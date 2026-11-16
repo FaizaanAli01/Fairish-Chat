@@ -68,9 +68,8 @@ class MessageReceiptServiceTest {
     @Test
     @DisplayName("Should mark only incoming messages delivered, de-duplicate IDs and notify the sender")
     void shouldMarkDeliveredIdempotently() {
-        when(mongoTemplate.findAndModify(
-                any(Query.class), any(Update.class), any(FindAndModifyOptions.class), eq(Message.class)))
-                .thenReturn(message("msg-1"));
+        when(mongoTemplate.find(any(Query.class), eq(Message.class)))
+                .thenReturn(List.of(message("msg-1")));
         when(userRepository.findById("user-1")).thenReturn(Optional.of(sender));
         when(messagingTemplateProvider.getIfAvailable()).thenReturn(messagingTemplate);
 
@@ -81,18 +80,20 @@ class MessageReceiptServiceTest {
         assertEquals(MessageStatus.DELIVERED, response.getStatus());
         assertEquals(List.of("msg-1"), response.getDeliveredMessageIds());
 
-        ArgumentCaptor<Query> queryCaptor = ArgumentCaptor.forClass(Query.class);
-        ArgumentCaptor<Update> updateCaptor = ArgumentCaptor.forClass(Update.class);
-        verify(mongoTemplate).findAndModify(
-                queryCaptor.capture(), updateCaptor.capture(),
-                any(FindAndModifyOptions.class), eq(Message.class));
+        ArgumentCaptor<Query> findCaptor = ArgumentCaptor.forClass(Query.class);
+        verify(mongoTemplate).find(findCaptor.capture(), eq(Message.class));
 
-        Document query = queryCaptor.getValue().getQueryObject();
-        assertEquals("msg-1", query.get("_id"));
+        Document query = findCaptor.getValue().getQueryObject();
+        assertTrue(query.containsKey("_id"));
         assertEquals("conv-123", query.get("conversationId"));
         assertEquals("user-1", query.get("senderId"), "Only the other participant's messages may be acknowledged");
         assertTrue(query.containsKey("deliveredAt"));
         assertNull(query.get("deliveredAt"), "The update must be conditional on an unset deliveredAt");
+
+        ArgumentCaptor<Query> updateQueryCaptor = ArgumentCaptor.forClass(Query.class);
+        ArgumentCaptor<Update> updateCaptor = ArgumentCaptor.forClass(Update.class);
+        verify(mongoTemplate).updateMulti(
+                updateQueryCaptor.capture(), updateCaptor.capture(), eq(Message.class));
 
         Document set = (Document) updateCaptor.getValue().getUpdateObject().get("$set");
         assertNotNull(set.get("deliveredAt"));
@@ -112,9 +113,8 @@ class MessageReceiptServiceTest {
     @Test
     @DisplayName("Should make repeated acknowledgements a no-op and push at most one receipt")
     void shouldIgnoreDuplicateAcknowledgements() {
-        when(mongoTemplate.findAndModify(
-                any(Query.class), any(Update.class), any(FindAndModifyOptions.class), eq(Message.class)))
-                .thenReturn(message("msg-1"), (Message) null);
+        when(mongoTemplate.find(any(Query.class), eq(Message.class)))
+                .thenReturn(List.of(message("msg-1")), List.of());
         when(userRepository.findById("user-1")).thenReturn(Optional.of(sender));
         when(messagingTemplateProvider.getIfAvailable()).thenReturn(messagingTemplate);
 
@@ -132,9 +132,8 @@ class MessageReceiptServiceTest {
     @Test
     @DisplayName("Should ignore foreign message IDs and never notify for them")
     void shouldIgnoreForeignMessageIds() {
-        when(mongoTemplate.findAndModify(
-                any(Query.class), any(Update.class), any(FindAndModifyOptions.class), eq(Message.class)))
-                .thenReturn(null);
+        when(mongoTemplate.find(any(Query.class), eq(Message.class)))
+                .thenReturn(List.of());
 
         MessageDeliveryResponse response = receiptService.markDelivered(
                 "conv-123", "user-2", "user-1", List.of("someone-elses-message"));
@@ -221,9 +220,8 @@ class MessageReceiptServiceTest {
     @Test
     @DisplayName("Should defer receipt pushes until the surrounding transaction commits")
     void shouldPushOnlyAfterCommit() {
-        when(mongoTemplate.findAndModify(
-                any(Query.class), any(Update.class), any(FindAndModifyOptions.class), eq(Message.class)))
-                .thenReturn(message("msg-1"));
+        when(mongoTemplate.find(any(Query.class), eq(Message.class)))
+                .thenReturn(List.of(message("msg-1")));
         when(userRepository.findById("user-1")).thenReturn(Optional.of(sender));
         when(messagingTemplateProvider.getIfAvailable()).thenReturn(messagingTemplate);
 
@@ -249,9 +247,8 @@ class MessageReceiptServiceTest {
     @Test
     @DisplayName("Should not fail the acknowledgement when the broker push fails")
     void shouldSwallowNotificationFailures() {
-        when(mongoTemplate.findAndModify(
-                any(Query.class), any(Update.class), any(FindAndModifyOptions.class), eq(Message.class)))
-                .thenReturn(message("msg-1"));
+        when(mongoTemplate.find(any(Query.class), eq(Message.class)))
+                .thenReturn(List.of(message("msg-1")));
         when(userRepository.findById("user-1")).thenReturn(Optional.of(sender));
         when(messagingTemplateProvider.getIfAvailable()).thenReturn(messagingTemplate);
         doThrow(new IllegalStateException("broker unavailable"))
@@ -265,9 +262,8 @@ class MessageReceiptServiceTest {
     @Test
     @DisplayName("Should skip the push safely when the broker template is not available yet")
     void shouldSkipPushWhenTemplateUnavailable() {
-        when(mongoTemplate.findAndModify(
-                any(Query.class), any(Update.class), any(FindAndModifyOptions.class), eq(Message.class)))
-                .thenReturn(message("msg-1"));
+        when(mongoTemplate.find(any(Query.class), eq(Message.class)))
+                .thenReturn(List.of(message("msg-1")));
         when(userRepository.findById("user-1")).thenReturn(Optional.of(sender));
         when(messagingTemplateProvider.getIfAvailable()).thenReturn(null);
 

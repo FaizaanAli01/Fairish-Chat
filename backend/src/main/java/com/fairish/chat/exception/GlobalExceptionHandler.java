@@ -5,6 +5,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -69,6 +71,28 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.CONFLICT.value())
                 .error("Conflict")
                 .message(ex.getMessage())
+                .path(request.getRequestURI())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
+    }
+
+    /**
+     * A unique index rejected a concurrent insert (for example two registrations
+     * racing for the same username). This is a client conflict, not a database
+     * outage, so it must not be reported as 503 by the generic DataAccessException
+     * handler. The response deliberately omits the index or field name.
+     */
+    @ExceptionHandler(DuplicateKeyException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicateKeyException(
+            DuplicateKeyException ex, HttpServletRequest request) {
+        log.warn("Rejected duplicate resource for [{}]", request.getRequestURI());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(Instant.now())
+                .status(HttpStatus.CONFLICT.value())
+                .error("Conflict")
+                .message("A resource with the same unique value already exists.")
                 .path(request.getRequestURI())
                 .build();
 
@@ -163,6 +187,22 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(errorResponse);
     }
 
+    @ExceptionHandler(TokenBlacklistException.class)
+    public ResponseEntity<ErrorResponse> handleTokenBlacklistException(
+            TokenBlacklistException ex, HttpServletRequest request) {
+        log.error("Token blacklist operation failed for [{}]: {}", request.getRequestURI(), ex.getMessage());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(Instant.now())
+                .status(HttpStatus.SERVICE_UNAVAILABLE.value())
+                .error("Service Unavailable")
+                .message("Unable to revoke the authentication token. Please try again later.")
+                .path(request.getRequestURI())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(errorResponse);
+    }
+
     @ExceptionHandler(InvalidRequestStateException.class)
     public ResponseEntity<ErrorResponse> handleInvalidRequestStateException(
             InvalidRequestStateException ex, HttpServletRequest request) {
@@ -242,38 +282,56 @@ public class GlobalExceptionHandler {
             rootCause = ex;
         }
 
-        String diagnosticCategory;
-        String userFriendlyMessage;
-        String msg = rootCause.getMessage() != null ? rootCause.getMessage().toLowerCase() : "";
-
-        if (msg.contains("authentication") || msg.contains("auth failed") || msg.contains("bad credentials")) {
-            diagnosticCategory = "AUTHENTICATION_FAILED";
-            userFriendlyMessage = "Database authentication failed. Please verify the database username and password in backend/.env.";
-            log.error("MongoDB Atlas connection failed: [Category: {}] - Atlas rejected authentication credentials.", diagnosticCategory);
-        } else if (msg.contains("timed out") || msg.contains("serverselectiontimeout") || msg.contains("timeout")) {
-            diagnosticCategory = "CONNECTION_TIMEOUT";
-            userFriendlyMessage = "Database connection timed out. Please ensure your current IP address is whitelisted in MongoDB Atlas (Network Access > Add IP Address).";
-            log.error("MongoDB Atlas connection failed: [Category: {}] - Timed out reaching Atlas cluster. Verify current IP is whitelisted in Atlas Network Access.", diagnosticCategory);
-        } else if (msg.contains("dns") || msg.contains("txt record") || msg.contains("unknownhost") || msg.contains("channel selector")) {
-            diagnosticCategory = "DNS_RESOLUTION_FAILED";
-            userFriendlyMessage = "Database host DNS resolution failed. Please verify the MongoDB Atlas cluster hostname in backend/.env.";
-            log.error("MongoDB Atlas connection failed: [Category: {}] - Host resolution failed for cluster domain.", diagnosticCategory);
-        } else {
-            diagnosticCategory = "DATABASE_UNAVAILABLE";
-            userFriendlyMessage = "Database service is currently unavailable. Please verify the MongoDB connection.";
-            log.error("MongoDB Atlas connection failed: [Category: {}] - {}: {}",
-                    diagnosticCategory, rootCause.getClass().getSimpleName(), rootCause.getMessage());
-        }
+        // Keep the diagnostic category server-side only. The response must not
+        // reveal connection strings, hostnames, usernames, or deployment hints.
+        String diagnosticCategory = classifyDatabaseFailure(rootCause);
+        log.error("Database operation failed [category={}, type={}]",
+                diagnosticCategory, rootCause.getClass().getSimpleName());
 
         ErrorResponse errorResponse = ErrorResponse.builder()
                 .timestamp(Instant.now())
                 .status(HttpStatus.SERVICE_UNAVAILABLE.value())
                 .error("Service Unavailable")
-                .message(userFriendlyMessage)
+                .message("Database service is currently unavailable. Please try again later.")
                 .path(request.getRequestURI())
                 .build();
 
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(errorResponse);
+    }
+
+    private String classifyDatabaseFailure(Throwable rootCause) {
+        String message = rootCause.getMessage() != null
+                ? rootCause.getMessage().toLowerCase()
+                : "";
+        if (message.contains("authentication") || message.contains("auth failed")
+                || message.contains("bad credentials")) {
+            return "AUTHENTICATION_FAILED";
+        }
+        if (message.contains("timed out") || message.contains("serverselectiontimeout")
+                || message.contains("timeout")) {
+            return "CONNECTION_TIMEOUT";
+        }
+        if (message.contains("dns") || message.contains("txt record")
+                || message.contains("unknownhost") || message.contains("channel selector")) {
+            return "DNS_RESOLUTION_FAILED";
+        }
+        return "DATABASE_UNAVAILABLE";
+    }
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ErrorResponse> handleRateLimitExceededException(
+            RateLimitExceededException ex, HttpServletRequest request) {
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(Instant.now())
+                .status(HttpStatus.TOO_MANY_REQUESTS.value())
+                .error("Too Many Requests")
+                .message(ex.getMessage())
+                .path(request.getRequestURI())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, "60")
+                .body(errorResponse);
     }
 
     @ExceptionHandler(MessageDecryptionException.class)

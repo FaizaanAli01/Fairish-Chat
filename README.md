@@ -176,6 +176,12 @@ This starts:
 The backend creates the `fairish-avatars` bucket on first use
 (`AVATAR_STORAGE_CREATE_BUCKET=true`). No manual bucket setup is required.
 
+> The bundled MongoDB is a standalone server. MongoDB transactions require a
+> replica set (Atlas) or a mongos router, so `backend/.env.example` sets
+> `SPRING_DATA_MONGODB_TRANSACTION_ENABLED=false` for this local setup. If you
+> point `MONGODB_URI` at Atlas, remove that line (or set it to `true`) to keep
+> multi-document transactional writes.
+
 > The compose credentials are **local development only**. If you already have a
 > `backend/.env` pointing at MongoDB Atlas, you can keep it and run only the MinIO service
 > (`docker compose up -d minio`).

@@ -400,30 +400,41 @@ export const DashboardPage: React.FC = () => {
     }
   }, [queueDeliveryAcks, user?.id]);
 
-  // After a reconnect, re-fetch conversations and acknowledge anything that
-  // was persisted while the socket was down. Only the latest page per
-  // conversation is needed: older messages were already acknowledged.
+  // After a reconnect, prioritize active conversation UI updates and reconcile
+  // unread background conversations in small batches to prevent server stampedes.
   const reconcileAfterReconnect = useCallback(async () => {
-    const data = await fetchConversations();
-    if (!data) return;
-
-    await Promise.allSettled(
-      data.map(async (conversation) => {
-        const latest = await messageApi.getMessages(conversation.id, 0, 30);
-        const undeliveredIds = latest.content
-          .filter((m) => m.senderId !== user?.id && !m.deliveredAt)
-          .map((m) => m.id);
-        if (undeliveredIds.length > 0) {
-          await messageApi.markDelivered(conversation.id, undeliveredIds);
-        }
-      })
-    );
-
-    // Reload the open conversation so missed messages and authoritative
-    // receipt timestamps replace the stale local copy.
+    // 1. Prioritize active conversation for instant responsive UI
     const active = selectedConversationRef.current;
     if (active) {
       await loadConversationMessages(active.id);
+    }
+
+    // 2. Fetch latest conversation list
+    const data = await fetchConversations();
+    if (!data || data.length === 0) return;
+
+    // 3. Batch reconcile delivery receipts for unread conversations without saturating the server
+    const targetConversations = data
+      .filter((c) => c.id !== active?.id && ((c.unreadCount ?? 0) > 0))
+      .slice(0, 10);
+
+    for (let i = 0; i < targetConversations.length; i += 3) {
+      const chunk = targetConversations.slice(i, i + 3);
+      await Promise.allSettled(
+        chunk.map(async (conversation) => {
+          try {
+            const latest = await messageApi.getMessages(conversation.id, 0, 20);
+            const undeliveredIds = latest.content
+              .filter((m) => m.senderId !== user?.id && !m.deliveredAt)
+              .map((m) => m.id);
+            if (undeliveredIds.length > 0) {
+              await messageApi.markDelivered(conversation.id, undeliveredIds);
+            }
+          } catch (err) {
+            console.warn(`[Reconnect] Reconcile delivery failed for ${conversation.id}:`, err);
+          }
+        })
+      );
     }
   }, [fetchConversations, loadConversationMessages, user?.id]);
 

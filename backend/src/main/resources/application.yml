@@ -25,6 +25,20 @@ app:
     # Development defaults only. Production must set CORS_ALLOWED_ORIGINS to the
     # exact frontend origin(s); see application-prod.yml.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,http://localhost:4173,http://127.0.0.1:5173}
+  rate-limit:
+    # Per-source-IP protection for login and registration. AuthService also
+    # applies a per-account login limit.
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    login-per-minute: ${RATE_LIMIT_LOGIN_PER_MINUTE:10}
+    register-per-minute: ${RATE_LIMIT_REGISTER_PER_MINUTE:5}
+    login-per-account-per-minute: ${RATE_LIMIT_LOGIN_PER_ACCOUNT_PER_MINUTE:5}
+    # X-Forwarded-For is only read when the TCP peer matches one of these
+    # addresses/CIDRs. Set to an empty value to trust no proxy at all.
+    trusted-proxies: ${TRUSTED_PROXIES:127.0.0.1/32,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
+  security:
+    token-blacklist:
+      # How often an instance refreshes the persisted JWT revocation list.
+      refresh-ms: ${TOKEN_BLACKLIST_REFRESH_MS:5000}
   encryption:
     # Server-side encryption of message content and conversation previews at
     # rest (AES-256-GCM). The key is never sent to the browser and has no

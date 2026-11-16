@@ -4,6 +4,9 @@ import { LoginPayload, RegisterPayload } from '../types/auth';
 import { authApi } from '../api/authApi';
 import { userApi } from '../api/userApi';
 
+const TOKEN_KEY = 'fairish_jwt_token';
+const USER_KEY = 'fairish_user';
+
 interface AuthContextType {
   user: User | null;
   token: string | null;
@@ -18,35 +21,90 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/**
+ * Reads the persisted token defensively. A malformed or empty value is treated
+ * as no session rather than being forwarded to the API.
+ */
+function readStoredToken(): string | null {
+  try {
+    const stored = localStorage.getItem(TOKEN_KEY);
+    return stored && stored.trim().length > 0 ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parses the cached user without ever throwing. Corrupted or tampered storage
+ * must not crash the application on boot.
+ */
+function readStoredUser(): User | null {
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(USER_KEY);
+  } catch {
+    return null;
+  }
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      typeof (parsed as { id?: unknown }).id === 'string' &&
+      typeof (parsed as { username?: unknown }).username === 'string'
+    ) {
+      return parsed as User;
+    }
+  } catch {
+    // Fall through to cleanup.
+  }
+
+  try {
+    localStorage.removeItem(USER_KEY);
+  } catch {
+    // Storage may be unavailable (private mode, quota). Ignore.
+  }
+  return null;
+}
+
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('fairish_user');
-    return saved ? JSON.parse(saved) : null;
-  });
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('fairish_jwt_token'));
+  const [token, setToken] = useState<string | null>(readStoredToken);
+  const [user, setUser] = useState<User | null>(() => (readStoredToken() ? readStoredUser() : null));
   const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  const clearSession = () => {
+    try {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+    } catch {
+      // Ignore storage failures; in-memory state is still cleared.
+    }
+    setToken(null);
+    setUser(null);
+  };
 
   const refreshUser = async () => {
     try {
       const currentUser = await userApi.getCurrentUser();
       setUser(currentUser);
-      localStorage.setItem('fairish_user', JSON.stringify(currentUser));
+      localStorage.setItem(USER_KEY, JSON.stringify(currentUser));
     } catch (error: unknown) {
-      // Only clear authentication state on explicit 401/403 (token expired or invalid)
-      // Preserve the token for other errors (e.g., network issues, server downtime)
+      // Only clear authentication state on explicit 401/403 (token expired or invalid).
+      // Preserve the token for other errors (e.g. network issues, server downtime).
       const axiosError = error as { response?: { status?: number } };
       if (axiosError?.response?.status === 401 || axiosError?.response?.status === 403) {
-        setToken(null);
-        setUser(null);
-        localStorage.removeItem('fairish_jwt_token');
-        localStorage.removeItem('fairish_user');
+        clearSession();
       }
     }
   };
 
   useEffect(() => {
     const initAuth = async () => {
-      const storedToken = localStorage.getItem('fairish_jwt_token');
+      const storedToken = readStoredToken();
       if (storedToken) {
         await refreshUser();
       }
@@ -56,47 +114,74 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     initAuth();
 
     const handleUnauthorized = () => {
-      setToken(null);
-      setUser(null);
+      clearSession();
+    };
+
+    // Keep every tab in sync when another tab logs in, logs out, or the session
+    // is invalidated. The storage event fires only in other tabs, so this cannot
+    // loop with the writes performed above.
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === TOKEN_KEY) {
+        const nextToken = readStoredToken();
+        setToken(nextToken);
+        setUser(nextToken ? readStoredUser() : null);
+      } else if (event.key === USER_KEY) {
+        setUser(readStoredUser());
+      } else if (event.key === null) {
+        // localStorage.clear() was called in another tab.
+        setToken(null);
+        setUser(null);
+      }
     };
 
     window.addEventListener('auth:unauthorized', handleUnauthorized);
-    return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener('auth:unauthorized', handleUnauthorized);
+      window.removeEventListener('storage', handleStorage);
+    };
   }, []);
+
+  const persistSession = (nextToken: string, nextUser: User) => {
+    try {
+      localStorage.setItem(TOKEN_KEY, nextToken);
+      localStorage.setItem(USER_KEY, JSON.stringify(nextUser));
+    } catch {
+      // Storage can be unavailable (private mode, quota). The in-memory
+      // session still works for this tab.
+    }
+    setToken(nextToken);
+    setUser(nextUser);
+  };
 
   const login = async (data: LoginPayload) => {
     const response = await authApi.login(data);
-    localStorage.setItem('fairish_jwt_token', response.token);
-    localStorage.setItem('fairish_user', JSON.stringify(response.user));
-    setToken(response.token);
-    setUser(response.user);
+    persistSession(response.token, response.user);
   };
 
   const register = async (data: RegisterPayload) => {
     const response = await authApi.register(data);
-    localStorage.setItem('fairish_jwt_token', response.token);
-    localStorage.setItem('fairish_user', JSON.stringify(response.user));
-    setToken(response.token);
-    setUser(response.user);
+    persistSession(response.token, response.user);
   };
 
   const logout = async () => {
     try {
       await authApi.logout();
     } catch {
-      // Ignore network errors on logout
+      // Ignore network errors on logout; local state is always cleared.
     } finally {
-      localStorage.removeItem('fairish_jwt_token');
-      localStorage.removeItem('fairish_user');
-      setToken(null);
-      setUser(null);
+      clearSession();
     }
   };
 
   const updateProfile = async (data: UpdateProfilePayload): Promise<User> => {
     const updated = await userApi.updateProfile(data);
     setUser(updated);
-    localStorage.setItem('fairish_user', JSON.stringify(updated));
+    try {
+      localStorage.setItem(USER_KEY, JSON.stringify(updated));
+    } catch {
+      // Ignore storage failures; the updated profile is already in memory.
+    }
     return updated;
   };
 

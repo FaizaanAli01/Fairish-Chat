@@ -4,8 +4,10 @@ spring:
       on-profile: prod
 
 server:
-  # Trust X-Forwarded-* headers when deployed behind a reverse proxy / load balancer.
-  forward-headers-strategy: framework
+  # Forwarded headers are NOT trusted implicitly. Client IP resolution for rate
+  # limiting is performed by ClientIpResolver, which only reads
+  # X-Forwarded-For when the immediate peer is listed in TRUSTED_PROXIES.
+  forward-headers-strategy: none
   # Never leak exception details or binding errors to clients.
   error:
     include-message: never

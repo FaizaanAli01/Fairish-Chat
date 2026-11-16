@@ -10,8 +10,13 @@ import com.fairish.chat.security.CustomUserDetailsService;
 import com.fairish.chat.security.JwtAuthenticationEntryPoint;
 import com.fairish.chat.security.JwtAuthenticationFilter;
 import com.fairish.chat.security.JwtService;
+import com.fairish.chat.security.ClientIpResolver;
+import com.fairish.chat.security.RateLimiterService;
+import com.fairish.chat.security.TokenBlacklistService;
 import com.fairish.chat.service.AuthService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.security.SignatureException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,18 +24,24 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
+import java.util.Date;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(AuthController.class)
 @AutoConfigureMockMvc(addFilters = false)
+@Import({RateLimiterService.class, ClientIpResolver.class})
 class AuthControllerTest {
 
     @Autowired
@@ -44,6 +55,9 @@ class AuthControllerTest {
 
     @MockBean
     private JwtService jwtService;
+
+    @MockBean
+    private TokenBlacklistService tokenBlacklistService;
 
     @MockBean
     private CustomUserDetailsService userDetailsService;
@@ -171,12 +185,88 @@ class AuthControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/auth/logout - Should return 200 OK")
+    @DisplayName("POST /api/auth/logout - Valid token should be blacklisted until expiration")
     void shouldLogoutSuccessfully() throws Exception {
+        String token = "valid.jwt.token";
+        Date expiration = Date.from(Instant.now().plusSeconds(3600));
+        when(jwtService.extractExpiration(token)).thenReturn(expiration);
+
         mockMvc.perform(post("/api/auth/logout")
-                        .contentType(MediaType.APPLICATION_JSON))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").exists());
+                .andExpect(jsonPath("$.message").value("Logged out successfully."));
+
+        verify(tokenBlacklistService).blacklistToken(token, expiration.toInstant());
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/logout - Missing Authorization header should return 401 Unauthorized")
+    void shouldRejectLogoutWithoutToken() throws Exception {
+        mockMvc.perform(post("/api/auth/logout"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message")
+                        .value("Authorization header with a Bearer token is required."));
+
+        verifyNoInteractions(jwtService, tokenBlacklistService);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/logout - Malformed Authorization header should return 401 Unauthorized")
+    void shouldRejectLogoutWithMalformedHeader() throws Exception {
+        mockMvc.perform(post("/api/auth/logout")
+                        .header("Authorization", "Token valid.jwt.token"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message")
+                        .value("Authorization header must use the Bearer scheme."));
+
+        verifyNoInteractions(jwtService, tokenBlacklistService);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/logout - Invalid JWT signature should return 401 Unauthorized")
+    void shouldRejectLogoutWithInvalidJwt() throws Exception {
+        String token = "invalid.jwt.token";
+        when(jwtService.extractExpiration(token))
+                .thenThrow(new SignatureException("JWT signature does not match"));
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("The authentication token is invalid."));
+
+        verifyNoInteractions(tokenBlacklistService);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/logout - Expired JWT should return 401 Unauthorized")
+    void shouldRejectLogoutWithExpiredJwt() throws Exception {
+        String token = "expired.jwt.token";
+        when(jwtService.extractExpiration(token))
+                .thenThrow(new ExpiredJwtException(null, null, "JWT expired"));
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("The authentication token has expired."));
+
+        verifyNoInteractions(tokenBlacklistService);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/logout - Blacklist failure should return 503 Service Unavailable")
+    void shouldFailLogoutWhenBlacklistingFails() throws Exception {
+        String token = "valid.jwt.token";
+        Date expiration = Date.from(Instant.now().plusSeconds(3600));
+        when(jwtService.extractExpiration(token)).thenReturn(expiration);
+        doThrow(new RuntimeException("Blacklist store unavailable"))
+                .when(tokenBlacklistService).blacklistToken(token, expiration.toInstant());
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.message")
+                        .value("Unable to revoke the authentication token. Please try again later."));
+
+        verify(tokenBlacklistService).blacklistToken(token, expiration.toInstant());
     }
 }
-

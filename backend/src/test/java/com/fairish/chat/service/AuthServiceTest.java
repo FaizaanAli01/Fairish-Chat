@@ -5,9 +5,11 @@ import com.fairish.chat.dto.LoginRequest;
 import com.fairish.chat.dto.RegisterRequest;
 import com.fairish.chat.exception.DuplicateResourceException;
 import com.fairish.chat.exception.InvalidCredentialsException;
+import com.fairish.chat.exception.RateLimitExceededException;
 import com.fairish.chat.model.User;
 import com.fairish.chat.repository.UserRepository;
 import com.fairish.chat.security.JwtService;
+import com.fairish.chat.security.RateLimiterService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -36,6 +38,9 @@ class AuthServiceTest {
 
     @Mock
     private JwtService jwtService;
+
+    @Mock
+    private RateLimiterService rateLimiterService;
 
     @InjectMocks
     private AuthService authService;
@@ -109,6 +114,7 @@ class AuthServiceTest {
     @Test
     @DisplayName("Should successfully login with valid credentials")
     void shouldLoginSuccessfully() {
+        when(rateLimiterService.allowLoginForAccount("john@example.com")).thenReturn(true);
         when(userRepository.findByEmailIgnoreCase("john@example.com")).thenReturn(Optional.of(mockUser));
         when(passwordEncoder.matches("password123", "hashedPassword")).thenReturn(true);
         when(jwtService.generateToken(any())).thenReturn("mock.jwt.token");
@@ -124,6 +130,7 @@ class AuthServiceTest {
     @Test
     @DisplayName("Should throw InvalidCredentialsException when user not found")
     void shouldThrowWhenUserNotFound() {
+        when(rateLimiterService.allowLoginForAccount("john@example.com")).thenReturn(true);
         when(userRepository.findByEmailIgnoreCase("john@example.com")).thenReturn(Optional.empty());
         when(userRepository.findByUsernameIgnoreCase("john@example.com")).thenReturn(Optional.empty());
 
@@ -133,6 +140,7 @@ class AuthServiceTest {
     @Test
     @DisplayName("Should throw InvalidCredentialsException when password does not match")
     void shouldThrowWhenPasswordMismatch() {
+        when(rateLimiterService.allowLoginForAccount("john@example.com")).thenReturn(true);
         when(userRepository.findByEmailIgnoreCase("john@example.com")).thenReturn(Optional.of(mockUser));
         when(passwordEncoder.matches("wrongPassword", "hashedPassword")).thenReturn(false);
 
@@ -142,6 +150,16 @@ class AuthServiceTest {
                 .build();
 
         assertThrows(InvalidCredentialsException.class, () -> authService.login(wrongLogin));
+    }
+
+    @Test
+    @DisplayName("Should reject login when the per-account limit is exceeded")
+    void shouldRejectWhenAccountRateLimited() {
+        when(rateLimiterService.allowLoginForAccount("john@example.com")).thenReturn(false);
+
+        assertThrows(RateLimitExceededException.class, () -> authService.login(loginRequest));
+        verify(userRepository, never()).findByEmailIgnoreCase(anyString());
+        verify(userRepository, never()).findByUsernameIgnoreCase(anyString());
     }
 }
 

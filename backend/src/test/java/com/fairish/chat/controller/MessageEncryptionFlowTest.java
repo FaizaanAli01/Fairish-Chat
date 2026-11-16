@@ -12,6 +12,9 @@ import com.fairish.chat.repository.UserRepository;
 import com.fairish.chat.security.CustomUserDetailsService;
 import com.fairish.chat.security.JwtAuthenticationEntryPoint;
 import com.fairish.chat.security.JwtService;
+import com.fairish.chat.security.ClientIpResolver;
+import com.fairish.chat.security.RateLimiterService;
+import com.fairish.chat.security.TokenBlacklistService;
 import com.fairish.chat.service.ConversationService;
 import com.fairish.chat.service.ConversationUnreadService;
 import com.fairish.chat.service.MessageReceiptService;
@@ -56,7 +59,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(MessageController.class)
 @AutoConfigureMockMvc(addFilters = false)
 @EnableConfigurationProperties(MessageEncryptionProperties.class)
-@Import({MessageService.class, MessageEncryptionService.class})
+@Import({MessageService.class, MessageEncryptionService.class, RateLimiterService.class, ClientIpResolver.class})
 @TestPropertySource(properties = {
         "app.encryption.enabled=true",
         "app.encryption.active-key-id=v1",
@@ -93,6 +96,9 @@ class MessageEncryptionFlowTest {
 
     @MockBean
     private JwtService jwtService;
+
+    @MockBean
+    private TokenBlacklistService tokenBlacklistService;
 
     @MockBean
     private CustomUserDetailsService userDetailsService;

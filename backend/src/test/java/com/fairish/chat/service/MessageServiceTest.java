@@ -411,6 +411,34 @@ class MessageServiceTest {
         verifyNoInteractions(messageReceiptService);
     }
 
+    @Test
+    @DisplayName("Should gracefully handle corrupted encrypted message in history with placeholder (ENC-01)")
+    void shouldGracefullyHandleCorruptedMessageInHistory() {
+        when(conversationService.getConversationAndValidateParticipant("conv-123", "user-1"))
+                .thenReturn(sampleConversation);
+
+        Message corrupted = Message.builder()
+                .id("msg-corrupted")
+                .conversationId("conv-123")
+                .senderId("user-1")
+                .ciphertext("corrupted-ciphertext")
+                .nonce("corrupted-nonce")
+                .authTag("corrupted-authTag")
+                .encryptionVersion(1)
+                .keyId("v1")
+                .createdAt(Instant.now())
+                .build();
+
+        when(messageRepository.findByConversationIdOrderByCreatedAtDesc(eq("conv-123"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(corrupted)));
+
+        PaginatedResponse<MessageResponse> response = messageService.getMessageHistory("conv-123", "user-1", 0, 20);
+
+        assertNotNull(response);
+        assertEquals(1, response.getContent().size());
+        assertEquals(MessageEncryptionService.PREVIEW_UNAVAILABLE, response.getContent().get(0).getContent());
+    }
+
     private Message encryptedMessage(String id, EncryptedPayload payload) {
         return Message.builder()
                 .id(id)

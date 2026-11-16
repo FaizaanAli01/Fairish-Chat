@@ -1,0 +1,10 @@
+# Keep build contexts small and secrets out of the image build.
+target/
+.env
+.env.*
+*.log
+apache-maven-*/
+.git/
+.gitignore
+.idea/
+.vscode/

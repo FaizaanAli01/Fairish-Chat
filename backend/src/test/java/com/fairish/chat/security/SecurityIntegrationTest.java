@@ -30,7 +30,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(controllers = {HealthController.class, UserController.class, AvatarController.class})
-@Import({SecurityConfig.class, JwtAuthenticationEntryPoint.class, JwtAuthenticationFilter.class})
+@Import({SecurityConfig.class, JwtAuthenticationEntryPoint.class, JwtAuthenticationFilter.class,
+        RateLimiterService.class, ClientIpResolver.class})
 class SecurityIntegrationTest {
 
     @Autowired
@@ -41,6 +42,9 @@ class SecurityIntegrationTest {
 
     @MockBean
     private CustomUserDetailsService userDetailsService;
+
+    @MockBean
+    private TokenBlacklistService tokenBlacklistService;
 
     @MockBean
     private UserService userService;
@@ -87,6 +91,33 @@ class SecurityIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.username").value("john_doe"));
+    }
+
+    @Test
+    @DisplayName("Protected endpoint should reject blacklisted tokens with 401")
+    void protectedEndpointShouldRejectBlacklistedToken() throws Exception {
+        String blacklistedToken = "blacklisted.jwt.token";
+        when(tokenBlacklistService.isBlacklisted(blacklistedToken)).thenReturn(true);
+
+        mockMvc.perform(get("/api/users/me")
+                        .header("Authorization", "Bearer " + blacklistedToken)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401));
+    }
+
+    @Test
+    @DisplayName("Protected endpoint should return 503 when the blacklist lookup fails")
+    void protectedEndpointShouldFailClosedWhenBlacklistLookupFails() throws Exception {
+        String token = "valid.jwt.token";
+        when(tokenBlacklistService.isBlacklisted(token))
+                .thenThrow(new RuntimeException("Blacklist store unavailable"));
+
+        mockMvc.perform(get("/api/users/me")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.status").value(503));
     }
 
     @Test

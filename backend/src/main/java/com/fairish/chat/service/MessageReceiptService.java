@@ -82,22 +82,27 @@ public class MessageReceiptService {
                     updatedIds, deliveredAt);
         }
 
-        for (String messageId : sanitizeMessageIds(messageIds)) {
-            Query query = Query.query(Criteria.where("_id").is(messageId)
-                    .and("conversationId").is(conversationId)
-                    .and("senderId").is(senderId)
-                    // Conditional update: already delivered/seen messages are untouched.
-                    .and("deliveredAt").is(null));
+        Set<String> sanitized = sanitizeMessageIds(messageIds);
+        if (sanitized.isEmpty()) {
+            return new MessageDeliveryResponse(conversationId, MessageStatus.DELIVERED,
+                    updatedIds, deliveredAt);
+        }
 
-            Message updated = mongoTemplate.findAndModify(
-                    query,
+        // Batch query to locate candidate messages in a single WAN round trip (DB-02 fix)
+        Query findQuery = Query.query(Criteria.where("_id").in(sanitized)
+                .and("conversationId").is(conversationId)
+                .and("senderId").is(senderId)
+                .and("deliveredAt").is(null));
+        findQuery.fields().include("_id");
+
+        List<Message> candidates = mongoTemplate.find(findQuery, Message.class);
+        if (!candidates.isEmpty()) {
+            List<String> matchedIds = candidates.stream().map(Message::getId).toList();
+            mongoTemplate.updateMulti(
+                    Query.query(Criteria.where("_id").in(matchedIds).and("deliveredAt").is(null)),
                     new Update().set("deliveredAt", deliveredAt),
-                    FindAndModifyOptions.options().returnNew(true),
                     Message.class);
-
-            if (updated != null) {
-                updatedIds.add(messageId);
-            }
+            updatedIds.addAll(matchedIds);
         }
 
         if (!updatedIds.isEmpty()) {

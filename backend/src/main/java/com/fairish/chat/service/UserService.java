@@ -9,6 +9,7 @@ import com.fairish.chat.model.User;
 import com.fairish.chat.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -24,6 +25,10 @@ import java.util.stream.Collectors;
 public class UserService {
 
     private static final Logger log = LoggerFactory.getLogger(UserService.class);
+
+    /** Bounds the user directory query so a crafted search cannot scan or return unbounded data. */
+    private static final int MAX_SEARCH_QUERY_LENGTH = 50;
+    private static final int MAX_SEARCH_RESULTS = 20;
 
     private final UserRepository userRepository;
 
@@ -88,6 +93,9 @@ public class UserService {
         }
 
         String trimmedQuery = query.trim();
+        if (trimmedQuery.length() > MAX_SEARCH_QUERY_LENGTH) {
+            trimmedQuery = trimmedQuery.substring(0, MAX_SEARCH_QUERY_LENGTH);
+        }
 
         // A 24-hex value is a Fairish User ID; resolve it exactly so users can be
         // found by the identifier they share. Fall back to username search when
@@ -104,7 +112,8 @@ public class UserService {
         }
 
         String safeRegex = Pattern.quote(trimmedQuery);
-        List<User> matchedUsers = userRepository.searchByUsername(safeRegex);
+        List<User> matchedUsers = userRepository.searchByUsername(
+                safeRegex, PageRequest.of(0, MAX_SEARCH_RESULTS));
 
         return matchedUsers.stream()
                 .filter(u -> !u.getUsername().equalsIgnoreCase(currentUsername))

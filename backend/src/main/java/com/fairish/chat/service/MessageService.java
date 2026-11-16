@@ -6,6 +6,8 @@ import com.fairish.chat.dto.PaginatedResponse;
 import com.fairish.chat.dto.SendMessageRequest;
 import com.fairish.chat.encryption.EncryptedPayload;
 import com.fairish.chat.encryption.MessageEncryptionService;
+import com.fairish.chat.exception.MessageAuthenticationException;
+import com.fairish.chat.exception.MessageDecryptionException;
 import com.fairish.chat.model.Conversation;
 import com.fairish.chat.model.Message;
 import com.fairish.chat.repository.MessageRepository;
@@ -158,9 +160,22 @@ public class MessageService {
         Pageable pageable = PageRequest.of(sanitizedPage, sanitizedSize);
         Page<Message> messagePage = messageRepository.findByConversationIdOrderByCreatedAtDesc(conversationId, pageable);
 
-        // Every retrieval path goes through the same authenticated decryption.
-        Page<MessageResponse> responsePage = messagePage.map(message ->
-                MessageResponse.fromMessage(message, encryptionService.decrypt(message)));
+        // Every retrieval path goes through authenticated decryption with graceful degradation (ENC-01 fix)
+        Page<MessageResponse> responsePage = messagePage.map(message -> {
+            String content;
+            try {
+                content = encryptionService.decrypt(message);
+            } catch (MessageAuthenticationException ex) {
+                log.error("Message authentication failed for message [{}] in conversation [{}]",
+                        message.getId(), conversationId);
+                throw ex;
+            } catch (MessageDecryptionException ex) {
+                log.warn("Corrupted or undecryptable message [{}] in conversation [{}]: {}",
+                        message.getId(), conversationId, ex.getMessage());
+                content = MessageEncryptionService.PREVIEW_UNAVAILABLE;
+            }
+            return MessageResponse.fromMessage(message, content);
+        });
         return PaginatedResponse.fromPage(responsePage);
     }
 }

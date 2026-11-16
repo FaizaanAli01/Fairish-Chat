@@ -4,18 +4,12 @@ import { Message, MessageReceiptUpdate } from '../types/message';
 import { UnreadCountUpdate } from '../types/conversation';
 
 /**
- * Returns the configured WebSocket endpoint URL and appends the JWT token for
- * initial HTTP handshake authentication.
+ * Returns the configured WebSocket endpoint URL.
+ * Tokens are transmitted strictly via STOMP CONNECT headers to prevent
+ * token exposure in access logs and proxies.
  */
-export const getWebSocketUrl = (token?: string | null): string => {
-  const baseWsUrl = WS_URL;
-
-  if (token) {
-    const separator = baseWsUrl.includes('?') ? '&' : '?';
-    return `${baseWsUrl}${separator}token=${encodeURIComponent(token)}`;
-  }
-
-  return baseWsUrl;
+export const getWebSocketUrl = (_token?: string | null): string => {
+  return WS_URL;
 };
 
 class WebSocketService {

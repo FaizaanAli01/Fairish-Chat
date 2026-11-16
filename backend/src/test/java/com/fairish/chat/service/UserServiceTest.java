@@ -11,13 +11,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -116,7 +119,7 @@ class UserServiceTest {
                 .email("jane@example.com")
                 .build();
 
-        when(userRepository.searchByUsername(anyString())).thenReturn(List.of(mockUser, otherUser));
+        when(userRepository.searchByUsername(anyString(), any(Pageable.class))).thenReturn(List.of(mockUser, otherUser));
 
         List<PublicUserResponse> results = userService.searchUsers("john_doe", "doe");
 
@@ -141,7 +144,7 @@ class UserServiceTest {
         assertEquals(1, results.size());
         assertEquals(userId, results.get(0).getId());
         assertEquals("jane_doe", results.get(0).getUsername());
-        verify(userRepository, never()).searchByUsername(anyString());
+        verify(userRepository, never()).searchByUsername(anyString(), any(Pageable.class));
     }
 
     @Test
@@ -164,10 +167,36 @@ class UserServiceTest {
     void shouldFallBackWhenIdNotFound() {
         String userId = "507f1f77bcf86cd799439011";
         when(userRepository.findById(userId)).thenReturn(Optional.empty());
-        when(userRepository.searchByUsername(anyString())).thenReturn(List.of());
+        when(userRepository.searchByUsername(anyString(), any(Pageable.class))).thenReturn(List.of());
 
         assertTrue(userService.searchUsers("john_doe", userId).isEmpty());
-        verify(userRepository).searchByUsername(anyString());
+        verify(userRepository).searchByUsername(anyString(), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("Should bound the user search to a fixed page size")
+    void shouldBoundSearchResults() {
+        when(userRepository.searchByUsername(anyString(), any(Pageable.class))).thenReturn(List.of());
+
+        userService.searchUsers("john_doe", "doe");
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(userRepository).searchByUsername(anyString(), pageableCaptor.capture());
+        assertEquals(0, pageableCaptor.getValue().getPageNumber());
+        assertEquals(20, pageableCaptor.getValue().getPageSize());
+    }
+
+    @Test
+    @DisplayName("Should truncate an overlong search query before querying")
+    void shouldTruncateOverlongSearchQuery() {
+        String longQuery = "a".repeat(80);
+        when(userRepository.searchByUsername(anyString(), any(Pageable.class))).thenReturn(List.of());
+
+        userService.searchUsers("john_doe", longQuery);
+
+        ArgumentCaptor<String> regexCaptor = ArgumentCaptor.forClass(String.class);
+        verify(userRepository).searchByUsername(regexCaptor.capture(), any(Pageable.class));
+        assertEquals(Pattern.quote("a".repeat(50)), regexCaptor.getValue());
     }
 }
 

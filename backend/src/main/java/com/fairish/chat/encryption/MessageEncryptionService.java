@@ -1,5 +1,6 @@
 package com.fairish.chat.encryption;
 
+import com.fairish.chat.exception.MessageAuthenticationException;
 import com.fairish.chat.exception.MessageDecryptionException;
 import com.fairish.chat.model.Conversation;
 import com.fairish.chat.model.Message;
@@ -239,7 +240,7 @@ public class MessageEncryptionService {
             byte[] plaintext = cipher.doFinal(sealed);
             return new String(plaintext, StandardCharsets.UTF_8);
         } catch (AEADBadTagException ex) {
-            throw new MessageDecryptionException("Message authentication failed", ex);
+            throw new MessageAuthenticationException("Message authentication failed", ex);
         } catch (GeneralSecurityException ex) {
             throw new MessageDecryptionException("Encrypted message could not be decrypted", ex);
         } finally {

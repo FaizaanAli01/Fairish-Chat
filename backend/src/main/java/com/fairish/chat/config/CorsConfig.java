@@ -8,6 +8,8 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Arrays;
 import java.util.List;
 
@@ -18,9 +20,9 @@ public class CorsConfig {
     private String allowedOrigins;
 
     /**
-     * Fails fast when no origin is configured or when a wildcard is used together
-     * with credentialed requests. The prod profile supplies this value from
-     * CORS_ALLOWED_ORIGINS with no localhost fallback.
+     * Fails fast when no origin is configured or when an origin is not an exact
+     * HTTP(S) origin. Wildcards and path-bearing URLs are rejected so a
+     * misconfiguration cannot silently broaden access.
      */
     @PostConstruct
     void validateConfiguration() {
@@ -29,9 +31,43 @@ public class CorsConfig {
             throw new IllegalStateException(
                     "CORS_ALLOWED_ORIGINS must contain at least one explicit frontend origin.");
         }
-        if (origins.contains("*")) {
+        for (String origin : origins) {
+            validateOrigin(origin);
+        }
+    }
+
+    private void validateOrigin(String origin) {
+        if (origin.contains("*")) {
             throw new IllegalStateException(
-                    "CORS_ALLOWED_ORIGINS must not contain the wildcard '*' when credentials are enabled.");
+                    "CORS_ALLOWED_ORIGINS must contain exact origins, not wildcard patterns: " + origin);
+        }
+
+        URI uri;
+        try {
+            uri = new URI(origin);
+        } catch (URISyntaxException ex) {
+            throw new IllegalStateException("CORS_ALLOWED_ORIGINS contains an invalid origin: " + origin, ex);
+        }
+
+        String scheme = uri.getScheme();
+        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+            throw new IllegalStateException(
+                    "CORS_ALLOWED_ORIGINS entries must use http or https: " + origin);
+        }
+        if (uri.getHost() == null || uri.getHost().isBlank()) {
+            throw new IllegalStateException("CORS_ALLOWED_ORIGINS entry has no host: " + origin);
+        }
+        if (uri.getUserInfo() != null) {
+            throw new IllegalStateException("CORS_ALLOWED_ORIGINS entries must not contain user info: " + origin);
+        }
+        if (uri.getQuery() != null || uri.getFragment() != null) {
+            throw new IllegalStateException(
+                    "CORS_ALLOWED_ORIGINS entries must not contain a query or fragment: " + origin);
+        }
+        String path = uri.getPath();
+        if (path != null && !path.isEmpty() && !"/".equals(path)) {
+            throw new IllegalStateException(
+                    "CORS_ALLOWED_ORIGINS entries must be origins without a path: " + origin);
         }
     }
 
@@ -41,6 +77,7 @@ public class CorsConfig {
         }
         return Arrays.stream(allowedOrigins.split(","))
                 .map(String::trim)
+                .map(origin -> origin.replaceAll("/+$", ""))
                 .filter(origin -> !origin.isEmpty())
                 .toList();
     }
@@ -49,11 +86,17 @@ public class CorsConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         List<String> origins = parseOrigins();
-        configuration.setAllowedOriginPatterns(origins);
+        // Exact origins only. setAllowedOriginPatterns would permit wildcard
+        // subdomains and is intentionally not used here.
+        configuration.setAllowedOrigins(origins);
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept", "X-Requested-With", "Origin"));
         configuration.setExposedHeaders(List.of("Authorization"));
-        configuration.setAllowCredentials(true);
+        // Authentication is Bearer-token only and the API never issues cookies,
+        // so credentialed cross-origin requests are unnecessary. Keeping this
+        // false means a browser will not attach cookies to cross-origin calls
+        // even if another application on the same site sets them.
+        configuration.setAllowCredentials(false);
         configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
@@ -61,4 +104,3 @@ public class CorsConfig {
         return source;
     }
 }
-
