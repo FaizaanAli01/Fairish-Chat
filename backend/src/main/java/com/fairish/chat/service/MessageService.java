@@ -160,21 +160,23 @@ public class MessageService {
         Pageable pageable = PageRequest.of(sanitizedPage, sanitizedSize);
         Page<Message> messagePage = messageRepository.findByConversationIdOrderByCreatedAtDesc(conversationId, pageable);
 
-        // Every retrieval path goes through authenticated decryption with graceful degradation (ENC-01 fix)
+        // Every retrieval path goes through authenticated decryption with per-message
+        // graceful degradation. A single undecryptable record must not prevent the rest
+        // of the conversation history from loading after a reopen. Never return plaintext
+        // on failure; only the existing placeholder is exposed.
         Page<MessageResponse> responsePage = messagePage.map(message -> {
             String content;
             try {
                 content = encryptionService.decrypt(message);
             } catch (MessageAuthenticationException ex) {
-                // keyId is not secret and is the single most useful signal when
-                // diagnosing a rotation: a tag failure means the configured key
-                // for this ID no longer matches the key that wrote the record.
-                log.error("Message authentication failed for message [{}] in conversation [{}] (keyId={})",
-                        message.getId(), conversationId, message.getKeyId());
-                throw ex;
+                // keyId/encryptionVersion are operational metadata (not secret) and are the
+                // most useful signals when diagnosing a key/config mismatch or tampering.
+                log.error("Message authentication failed for message [{}] in conversation [{}] (keyId={}, encryptionVersion={})",
+                        message.getId(), conversationId, message.getKeyId(), message.getEncryptionVersion());
+                content = MessageEncryptionService.PREVIEW_UNAVAILABLE;
             } catch (MessageDecryptionException ex) {
-                log.warn("Corrupted or undecryptable message [{}] in conversation [{}] (keyId={}): {}",
-                        message.getId(), conversationId, message.getKeyId(), ex.getMessage());
+                log.warn("Corrupted or undecryptable message [{}] in conversation [{}] (keyId={}, encryptionVersion={}): {}",
+                        message.getId(), conversationId, message.getKeyId(), message.getEncryptionVersion(), ex.getMessage());
                 content = MessageEncryptionService.PREVIEW_UNAVAILABLE;
             }
             return MessageResponse.fromMessage(message, content);

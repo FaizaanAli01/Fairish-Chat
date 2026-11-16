@@ -42,6 +42,16 @@ import static org.mockito.Mockito.*;
 class MessageServiceTest {
 
     static final String TEST_KEY = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpBQkNERUY=";
+    static final String OTHER_KEY_VALUE = "RkZGRUZGRUVGRkVFRkZFRUZGRUVGRkVFRkZFRUZGRUU=";
+
+    private MessageEncryptionProperties encryptionPropertiesWithKey(String key, String activeKeyId, String previousKeys) {
+        MessageEncryptionProperties properties = new MessageEncryptionProperties();
+        properties.setEnabled(true);
+        properties.setActiveKeyId(activeKeyId);
+        properties.setKey(key);
+        properties.setPreviousKeys(previousKeys);
+        return properties;
+    }
 
     @Mock
     private MessageRepository messageRepository;
@@ -268,7 +278,7 @@ class MessageServiceTest {
     }
 
     @Test
-    @DisplayName("Should reject tampered ciphertext instead of returning it as plaintext")
+    @DisplayName("Should not return tampered ciphertext as plaintext and should degrade it per-message")
     void shouldRejectTamperedHistory() {
         when(conversationService.getConversationAndValidateParticipant("conv-123", "user-1"))
                 .thenReturn(sampleConversation);
@@ -290,8 +300,12 @@ class MessageServiceTest {
         when(messageRepository.findByConversationIdOrderByCreatedAtDesc(eq("conv-123"), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(message)));
 
-        assertThrows(MessageDecryptionException.class,
-                () -> messageService.getMessageHistory("conv-123", "user-1", 0, 20));
+        PaginatedResponse<MessageResponse> response = messageService.getMessageHistory("conv-123", "user-1", 0, 20);
+
+        assertNotNull(response);
+        assertEquals(1, response.getContent().size());
+        assertEquals(MessageEncryptionService.PREVIEW_UNAVAILABLE, response.getContent().get(0).getContent());
+        assertNotEquals("Original", response.getContent().get(0).getContent());
     }
 
     @Test
@@ -437,6 +451,72 @@ class MessageServiceTest {
         assertNotNull(response);
         assertEquals(1, response.getContent().size());
         assertEquals(MessageEncryptionService.PREVIEW_UNAVAILABLE, response.getContent().get(0).getContent());
+    }
+
+    @Test
+    @DisplayName("Should decrypt persisted messages after restart when the same key is configured")
+    void shouldDecryptAfterRestartWithSameKey() {
+        // Simulate persistence with an initial service instance.
+        MessageService initialService = new MessageService(messageRepository, conversationService,
+                conversationUnreadService, messageReceiptService, messagingTemplate, encryptionService);
+        when(conversationService.getConversationAndValidateParticipant("conv-123", "user-1"))
+                .thenReturn(sampleConversation);
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> {
+            Message m = invocation.getArgument(0);
+            m.setId("msg-restart");
+            m.setCreatedAt(Instant.now());
+            return m;
+        });
+        when(conversationUnreadService.recordMessageAndIncrementUnread(
+                eq("conv-123"), eq("user-1"), eq("user-2"), any(EncryptedPayload.class), any(Instant.class)))
+                .thenReturn(sampleConversation);
+        initialService.sendMessage("conv-123", "user-1", new SendMessageRequest("Persisted across restart"));
+
+        ArgumentCaptor<Message> savedCaptor = ArgumentCaptor.forClass(Message.class);
+        verify(messageRepository).save(savedCaptor.capture());
+        Message stored = savedCaptor.getValue();
+
+        // Simulate application restart: a new encryption service and message service with the same key.
+        MessageEncryptionService restartedEncryption = new MessageEncryptionService(encryptionPropertiesWithKey(TEST_KEY, "v1", null));
+        MessageService restartedService = new MessageService(messageRepository, conversationService,
+                conversationUnreadService, messageReceiptService, messagingTemplate, restartedEncryption);
+        when(messageRepository.findByConversationIdOrderByCreatedAtDesc(eq("conv-123"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(stored)));
+
+        PaginatedResponse<MessageResponse> response = restartedService.getMessageHistory("conv-123", "user-1", 0, 20);
+
+        assertEquals(1, response.getContent().size());
+        assertEquals("Persisted across restart", response.getContent().get(0).getContent());
+    }
+
+    @Test
+    @DisplayName("Should keep other messages accessible when one message fails authentication in history")
+    void shouldKeepOtherMessagesWhenOneFailsAuthentication() {
+        // Restarted/misconfigured instance: cannot authenticate the affected record, but others remain readable.
+        MessageEncryptionService wrongKeyService = new MessageEncryptionService(encryptionPropertiesWithKey(OTHER_KEY_VALUE, "v1", null));
+        MessageService resilientService = new MessageService(messageRepository, conversationService,
+                conversationUnreadService, messageReceiptService, messagingTemplate, wrongKeyService);
+
+        when(conversationService.getConversationAndValidateParticipant("conv-123", "user-1"))
+                .thenReturn(sampleConversation);
+
+        EncryptedPayload goodPayload = wrongKeyService.encrypt("Readable message");
+        Message good = encryptedMessage("msg-good", goodPayload);
+        good.setCreatedAt(Instant.parse("2026-01-01T10:00:00Z"));
+
+        EncryptedPayload originalPayload = encryptionService.encrypt("Cannot decrypt this one");
+        Message authFailed = encryptedMessage("msg-auth-failed", originalPayload);
+        authFailed.setCreatedAt(Instant.parse("2026-01-01T09:59:00Z"));
+
+        when(messageRepository.findByConversationIdOrderByCreatedAtDesc(eq("conv-123"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(good, authFailed)));
+
+        PaginatedResponse<MessageResponse> response = resilientService.getMessageHistory("conv-123", "user-1", 0, 20);
+
+        assertEquals(2, response.getContent().size());
+        assertEquals("Readable message", response.getContent().get(0).getContent());
+        assertEquals(MessageEncryptionService.PREVIEW_UNAVAILABLE, response.getContent().get(1).getContent());
+        assertNotEquals("Cannot decrypt this one", response.getContent().get(1).getContent());
     }
 
     private Message encryptedMessage(String id, EncryptedPayload payload) {

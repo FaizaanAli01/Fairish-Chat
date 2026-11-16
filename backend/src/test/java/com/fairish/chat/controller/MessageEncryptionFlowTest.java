@@ -185,4 +185,48 @@ class MessageEncryptionFlowTest {
                 .andExpect(jsonPath("$.content[0].content").value("Decrypted history item"))
                 .andExpect(jsonPath("$.totalElements").value(1));
     }
+
+    @Test
+    @WithMockUser(username = "alice")
+    @DisplayName("GET history should reopen conversation and keep readable messages when one stored message cannot be decrypted")
+    void shouldReopenConversationHistoryWhenOneMessageFailsDecryption() throws Exception {
+        when(conversationService.getConversationAndValidateParticipant("conv-123", "current-user-id"))
+                .thenReturn(conversation);
+
+        EncryptedPayload readablePayload = encryptionService.encrypt("Still readable after reopen");
+        Message readable = Message.builder()
+                .id("msg-readable")
+                .conversationId("conv-123")
+                .senderId("other-user-id")
+                .ciphertext(readablePayload.ciphertext())
+                .nonce(readablePayload.nonce())
+                .authTag(readablePayload.authTag())
+                .encryptionVersion(readablePayload.encryptionVersion())
+                .keyId(readablePayload.keyId())
+                .createdAt(Instant.parse("2026-01-01T10:00:00Z"))
+                .build();
+
+        // Simulates a stored record whose key material is unavailable/mismatched for its keyId.
+        Message undecryptable = Message.builder()
+                .id("msg-undecryptable")
+                .conversationId("conv-123")
+                .senderId("other-user-id")
+                .ciphertext(readablePayload.ciphertext())
+                .nonce(readablePayload.nonce())
+                .authTag(readablePayload.authTag())
+                .encryptionVersion(readablePayload.encryptionVersion())
+                .keyId("missing-key")
+                .createdAt(Instant.parse("2026-01-01T09:59:00Z"))
+                .build();
+
+        when(messageRepository.findByConversationIdOrderByCreatedAtDesc(eq("conv-123"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(readable, undecryptable)));
+
+        mockMvc.perform(get("/api/conversations/conv-123/messages?page=0&size=20")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].content").value("Still readable after reopen"))
+                .andExpect(jsonPath("$.content[1].content").value(MessageEncryptionService.PREVIEW_UNAVAILABLE))
+                .andExpect(jsonPath("$.totalElements").value(2));
+    }
 }
