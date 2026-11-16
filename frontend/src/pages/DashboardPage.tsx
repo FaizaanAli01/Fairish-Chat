@@ -63,10 +63,42 @@ export const DashboardPage: React.FC = () => {
   const pendingDeliveryAcksRef = useRef<Map<string, Set<string>>>(new Map());
   const deliveryTimerRef = useRef<number | null>(null);
 
+  // The conversation list drives topic subscriptions, so a conversation that
+  // is not in state yet cannot receive real-time messages. Remember the latest
+  // list and allow event handlers to request a coalesced refresh when they see
+  // an unknown conversation.
+  const conversationsRef = useRef<Conversation[]>([]);
+  const fetchConversationsRef = useRef<() => Promise<Conversation[] | null>>(
+    async () => null
+  );
+  const conversationRefreshTimerRef = useRef<number | null>(null);
+
+  const requestConversationRefresh = useCallback(() => {
+    if (conversationRefreshTimerRef.current !== null) return;
+    conversationRefreshTimerRef.current = window.setTimeout(() => {
+      conversationRefreshTimerRef.current = null;
+      void fetchConversationsRef.current();
+    }, 300);
+  }, []);
+
   // Keep selectedConversationRef in sync with state for WebSocket message callbacks
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
   }, [selectedConversation]);
+
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  // Cancel any pending list refresh on unmount.
+  useEffect(() => {
+    return () => {
+      if (conversationRefreshTimerRef.current !== null) {
+        window.clearTimeout(conversationRefreshTimerRef.current);
+        conversationRefreshTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // Grow the composer with its content up to the maximum height, then scroll.
   useEffect(() => {
@@ -159,6 +191,13 @@ export const DashboardPage: React.FC = () => {
 
   // Real-time message handler
   const handleIncomingMessage = useCallback((incoming: Message) => {
+    // If the conversation is missing from local state (for example it was
+    // dropped by a concurrent list refresh) there is no topic subscription for
+    // it; refresh so real-time delivery resumes instead of dropping messages.
+    if (!conversationsRef.current.some((c) => c.id === incoming.conversationId)) {
+      requestConversationRefresh();
+    }
+
     // Acknowledge every message from the other participant, including ones in
     // inactive conversations: the client is subscribed to all conversations.
     if (user?.id && incoming.senderId !== user.id) {
@@ -200,7 +239,7 @@ export const DashboardPage: React.FC = () => {
       }
       return updated;
     });
-  }, [queueDeliveryAcks, user?.id]);
+  }, [queueDeliveryAcks, requestConversationRefresh, user?.id]);
 
   // Compute a unique, sorted comma-separated string of all conversation IDs to monitor.
   const subscribedConversationIdsKey = Array.from(
@@ -213,7 +252,13 @@ export const DashboardPage: React.FC = () => {
     .sort()
     .join(',');
 
-  // Subscribe to all conversations without duplicate subscriptions
+  // Subscribe to all conversations without duplicate subscriptions.
+  //
+  // `token` is a dependency: `websocketService.connect()` replaces the STOMP
+  // client (and clears its pending subscriptions) whenever the connection
+  // identity changes. Without this dependency a token change for the same user
+  // would leave the new client with no conversation subscriptions at all,
+  // silently disabling real-time delivery until a full page reload.
   useEffect(() => {
     if (!subscribedConversationIdsKey) return;
 
@@ -225,7 +270,7 @@ export const DashboardPage: React.FC = () => {
     return () => {
       unsubs.forEach((unsub) => unsub());
     };
-  }, [subscribedConversationIdsKey, handleIncomingMessage]);
+  }, [subscribedConversationIdsKey, handleIncomingMessage, token]);
 
   // Optimistically clear the badge, then persist the read state. The backend
   // pushes the same reset to every session of this user.
@@ -286,8 +331,21 @@ export const DashboardPage: React.FC = () => {
     fetchConversations();
   }, [fetchConversations]);
 
+  // Keep the deferred refresh target in sync with the latest fetcher.
+  useEffect(() => {
+    fetchConversationsRef.current = fetchConversations;
+  }, [fetchConversations]);
+
   // Authoritative unread updates for every conversation of this user.
   const handleUnreadUpdate = useCallback((update: UnreadCountUpdate) => {
+    // The backend pushes this for messages in conversations the client may not
+    // know about yet (the recipient is not subscribed to a brand-new
+    // conversation's topic). Without a refresh the conversation would never
+    // appear in the sidebar and its messages would only show after a reload.
+    if (!conversationsRef.current.some((c) => c.id === update.conversationId)) {
+      requestConversationRefresh();
+    }
+
     const isActive = selectedConversationRef.current?.id === update.conversationId;
     const unreadCount = isActive ? 0 : Math.max(update.unreadCount, 0);
 
@@ -303,7 +361,7 @@ export const DashboardPage: React.FC = () => {
     if (isActive && update.unreadCount > 0) {
       markConversationRead(update.conversationId);
     }
-  }, [markConversationRead]);
+  }, [markConversationRead, requestConversationRefresh]);
 
   useEffect(() => {
     return websocketService.subscribeToUnread(handleUnreadUpdate);
@@ -600,7 +658,7 @@ export const DashboardPage: React.FC = () => {
   const otherUser = selectedConversation?.otherUser;
 
   return (
-    <div className="h-screen h-[100dvh] max-h-[100dvh] bg-dark-bg flex flex-col overflow-hidden">
+    <div className="app-viewport-height min-h-0 bg-dark-bg flex flex-col overflow-hidden">
       <Navbar />
 
       <div className="flex-1 flex overflow-hidden min-h-0 w-full relative">

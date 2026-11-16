@@ -23,7 +23,7 @@ export const Navbar: React.FC = () => {
 
   return (
     <>
-      <header className="h-16 border-b border-dark-border bg-dark-sidebar/95 backdrop-blur-md px-3 sm:px-6 flex items-center justify-between sticky top-0 z-30 flex-shrink-0">
+      <header className="h-[calc(4rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] border-b border-dark-border bg-dark-sidebar/95 backdrop-blur-md px-3 sm:px-6 flex items-center justify-between z-30 flex-shrink-0">
         {/* Brand Link */}
         <Link to="/app" className="flex items-center space-x-3 group min-w-0">
           <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-violet-hover to-violet-primary flex items-center justify-center shadow-violet-sm group-hover:shadow-violet-glow transition-all duration-200 flex-shrink-0">

@@ -36,8 +36,8 @@ build fail fast when `VITE_API_BASE_URL` is missing; production builds additiona
 `localhost`, `127.0.0.1`, and `[::1]` URLs. `VITE_*` values are public and are embedded in
 the bundle — never store secrets in them.
 
-The app connects to STOMP by appending the JWT to the WebSocket URL
-(`?token=<jwt>`), matching the backend handshake interceptor. If WebSocket delivery fails,
+The app authenticates the STOMP `CONNECT` frame with the JWT in STOMP headers, never in the
+WebSocket URL, so tokens do not leak into access logs or proxies. If WebSocket delivery fails,
 message sending falls back to the REST endpoint.
 
 ## Scripts
@@ -113,8 +113,10 @@ or STOMP call is still rejected with `403`.
 - The sidebar shows the most recent message preview and timestamp.
 - The message pane loads paginated history (newest first) and supports loading older pages.
 - Sending uses STOMP when connected and falls back to the REST endpoint otherwise.
-- Incoming messages arrive on `/topic/conversations/{id}`; the client subscribes only to the
-  selected conversation and unsubscribes when it changes.
+- Incoming messages arrive on `/topic/conversations/{id}`. The client subscribes to every
+  conversation in the list (not only the open one) so unread state and delivery
+  acknowledgements stay accurate. If an unread push arrives for a conversation the client
+  does not know yet, it refreshes the list and subscribes without a page reload.
 
 ### Avatars
 

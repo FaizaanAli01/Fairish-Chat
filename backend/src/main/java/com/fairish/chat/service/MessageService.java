@@ -166,12 +166,15 @@ public class MessageService {
             try {
                 content = encryptionService.decrypt(message);
             } catch (MessageAuthenticationException ex) {
-                log.error("Message authentication failed for message [{}] in conversation [{}]",
-                        message.getId(), conversationId);
+                // keyId is not secret and is the single most useful signal when
+                // diagnosing a rotation: a tag failure means the configured key
+                // for this ID no longer matches the key that wrote the record.
+                log.error("Message authentication failed for message [{}] in conversation [{}] (keyId={})",
+                        message.getId(), conversationId, message.getKeyId());
                 throw ex;
             } catch (MessageDecryptionException ex) {
-                log.warn("Corrupted or undecryptable message [{}] in conversation [{}]: {}",
-                        message.getId(), conversationId, ex.getMessage());
+                log.warn("Corrupted or undecryptable message [{}] in conversation [{}] (keyId={}): {}",
+                        message.getId(), conversationId, message.getKeyId(), ex.getMessage());
                 content = MessageEncryptionService.PREVIEW_UNAVAILABLE;
             }
             return MessageResponse.fromMessage(message, content);

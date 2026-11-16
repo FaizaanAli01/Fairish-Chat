@@ -3,10 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%230284c7'><path d='M12 2C6.48 2 2 6.48 2 12c0 1.85.5 3.58 1.38 5.08L2 22l5.12-1.34C8.56 21.49 10.23 22 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2zm0 18c-1.61 0-3.09-.45-4.37-1.22l-.31-.19-3.23.85.86-3.15-.2-.33C3.96 14.71 3.5 13.4 3.5 12c0-4.69 3.81-8.5 8.5-8.5s8.5 3.81 8.5 8.5-3.81 8.5-8.5 8.5z'/></svg>" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+    <!-- Matches the app shell background so mobile browser chrome does not
+         render a light strip around/behind the dark UI. -->
+    <meta name="theme-color" content="#0B0D14" />
     <title>Fairish Chat</title>
   </head>
-  <body class="bg-slate-50 text-slate-900 antialiased selection:bg-brand-500 selection:text-white">
+  <body class="bg-dark-bg text-content-primary antialiased selection:bg-brand-500 selection:text-white">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -4,6 +4,7 @@
 
 @layer base {
   :root {
+    color-scheme: dark;
     --bg-main: #0B0D14;
     --bg-sidebar: #111522;
     --bg-panel: #171C2B;
@@ -15,11 +16,32 @@
     --text-secondary: #94A3B8;
   }
 
-  html, body {
-    @apply min-h-screen bg-dark-bg text-content-primary font-sans antialiased;
-    background-color: #0B0D14;
+  html {
+    height: 100%;
+    background-color: var(--bg-main);
+  }
+
+  body {
+    @apply bg-dark-bg text-content-primary font-sans antialiased;
+    /*
+     * Do not use `min-h-screen` (100vh) here. On mobile browsers 100vh is
+     * taller than the visible viewport while the address bar is shown, which
+     * left a strip of document background below the 100dvh app shell. The
+     * dynamic viewport unit matches what the user can actually see. The
+     * @supports rule keeps the 100vh fallback for older browsers; declaring
+     * both in the same rule would let the minifier delete the fallback.
+     */
+    min-height: 100vh;
+    background-color: var(--bg-main);
     color: #F8FAFC;
     overflow-x: hidden;
+    overscroll-behavior-y: none;
+  }
+
+  @supports (height: 100dvh) {
+    body {
+      min-height: 100dvh;
+    }
   }
 
   /* Custom text selection */
@@ -73,6 +95,24 @@
 }
 
 @layer utilities {
+  /*
+   * App shell height. `100vh` is the fallback for browsers without dynamic
+   * viewport units; `100dvh` matches the visible viewport on mobile browsers
+   * whose toolbars collapse and expand. The @supports block keeps both
+   * declarations from being collapsed by the CSS minifier.
+   */
+  .app-viewport-height {
+    height: 100vh;
+    max-height: 100vh;
+  }
+
+  @supports (height: 100dvh) {
+    .app-viewport-height {
+      height: 100dvh;
+      max-height: 100dvh;
+    }
+  }
+
   /* Subtle violet glow effects for active / focused elements */
   .glow-violet {
     box-shadow: 0 0 20px -3px rgba(139, 92, 246, 0.35);

@@ -21,6 +21,31 @@ export default defineConfig(({ mode }) => {
     );
   }
 
+  if (mode === 'production') {
+    // The backend serves every REST endpoint under the /api context path
+    // (`/api/auth/login`, `/api/conversations`, ...). Client code appends paths
+    // such as `/auth/login` to this base, so a base URL that omits `/api`
+    // silently targets unauthenticated paths and the backend answers 401.
+    // Fail the build instead of shipping that regression again.
+    let apiPath: string;
+    try {
+      apiPath = new URL(apiBaseUrl).pathname.replace(/\/+$/, '');
+    } catch {
+      throw new Error(
+        '[config] VITE_API_BASE_URL must be an absolute URL, e.g. https://api.example.com/api.'
+      );
+    }
+
+    if (!apiPath.endsWith('/api')) {
+      throw new Error(
+        '[config] VITE_API_BASE_URL must include the backend /api context path. ' +
+          'Set it to an absolute URL ending in /api (for example ' +
+          'https://fairish-chat-backend.onrender.com/api), otherwise every REST ' +
+          'request is sent to a path the backend rejects with 401.'
+      );
+    }
+  }
+
   const wsUrl = env.VITE_WS_URL?.trim();
 
   if (wsUrl && mode === 'production' && LOCAL_HOST_PATTERN.test(wsUrl)) {

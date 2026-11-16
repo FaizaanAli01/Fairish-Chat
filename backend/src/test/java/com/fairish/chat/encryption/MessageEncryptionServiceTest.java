@@ -1,5 +1,6 @@
 package com.fairish.chat.encryption;
 
+import com.fairish.chat.exception.MessageAuthenticationException;
 import com.fairish.chat.exception.MessageDecryptionException;
 import com.fairish.chat.model.Conversation;
 import com.fairish.chat.model.Message;
@@ -172,6 +173,26 @@ class MessageEncryptionServiceTest {
         EncryptedPayload newPayload = rotated.encrypt("After rotation");
         assertEquals("v2", newPayload.keyId());
         assertEquals("After rotation", rotated.decrypt(message(newPayload)));
+    }
+
+    @Test
+    @DisplayName("Reusing a key ID for new key material must fail closed and stay recoverable")
+    void shouldFailClosedWhenKeyMaterialChangesUnderTheSameKeyId() {
+        MessageEncryptionService original = service(KEY, "v1", null);
+        EncryptedPayload existingRecord = original.encrypt("Existing message");
+
+        // Production accident: the key value changed while the key ID stayed
+        // v1, so old records still advertise keyId=v1. GCM must reject them
+        // rather than return garbage or plaintext.
+        MessageEncryptionService misRotated = service(OTHER_KEY, "v1", null);
+        assertThrows(MessageAuthenticationException.class,
+                () -> misRotated.decrypt(message(existingRecord)));
+
+        // Documented remediation: keep the original material under its original
+        // ID as a previous key and give the new material a new active ID. The
+        // existing records then decrypt again without being rewritten.
+        MessageEncryptionService remediated = service(OTHER_KEY, "v2", "v1:" + KEY);
+        assertEquals("Existing message", remediated.decrypt(message(existingRecord)));
     }
 
     @Test

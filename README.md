@@ -298,6 +298,30 @@ them, use the opt-in migration utility with a dry run first; nothing is rewritte
 automatically. Full commands, key rotation, and troubleshooting are in
 [`backend/README.md`](backend/README.md#message-encryption-at-rest).
 
+#### "Message content could not be decrypted."
+
+That response means the stored record's GCM authentication tag did not verify against the key
+currently configured for the record's `keyId`. The usual cause is changing
+`MESSAGE_ENCRYPTION_KEY` while leaving `MESSAGE_ENCRYPTION_KEY_ID` unchanged: the new key is then
+used under the old ID, so every previously written record fails authentication.
+
+Do not delete the messages and do not disable encryption. Restore the original key for that ID, or
+register it under its original ID as a previous key and move the new material to a new active ID:
+
+```bash
+MESSAGE_ENCRYPTION_KEY_ID=v2
+MESSAGE_ENCRYPTION_KEY=<new key>
+MESSAGE_ENCRYPTION_PREVIOUS_KEYS=v1:<key that encrypted the existing messages>
+```
+
+The backend logs each failing record's `keyId` so the affected key generation can be identified
+without exposing ciphertext or key material. Message history fails closed for authentication
+failures; only malformed or unknown-key records degrade to a placeholder preview.
+
+Keep the old key in a secret manager or backup before rotating. If the material that wrote the
+existing records was overwritten and no copy remains, those records cannot be recovered; do not
+delete them while a backup or platform secret version is still being located.
+
 ### Frontend
 
 | Variable | Required | Description |
