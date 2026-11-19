@@ -99,19 +99,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (axiosError?.response?.status === 401 || axiosError?.response?.status === 403) {
         clearSession();
       }
+    } finally {
+      setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    const initAuth = async () => {
-      const storedToken = readStoredToken();
-      if (storedToken) {
-        await refreshUser();
-      }
-      setIsLoading(false);
-    };
+    const storedToken = readStoredToken();
+    const hasCachedProfile = storedToken !== null && readStoredUser() !== null;
 
-    initAuth();
+    if (storedToken) {
+      // Revalidate in the background. Waiting for /users/me before rendering used
+      // to show a full-screen spinner for the entire backend cold-start window and
+      // delayed every dashboard request. The cached profile is sufficient to boot.
+      void refreshUser();
+    }
+
+    // Only block rendering when there is a token but no cached identity to use.
+    // With no token (login page) or with a cached profile, render immediately.
+    setIsLoading(storedToken !== null && !hasCachedProfile);
 
     const handleUnauthorized = () => {
       clearSession();

@@ -44,6 +44,19 @@
     }
   }
 
+  /* Keep the mount point dark and viewport-sized so no light strip can appear
+     if the app shell is temporarily shorter than the visible viewport. */
+  #root {
+    min-height: 100vh;
+    background-color: var(--bg-main);
+  }
+
+  @supports (height: 100dvh) {
+    #root {
+      min-height: 100dvh;
+    }
+  }
+
   /* Custom text selection */
   ::selection {
     background-color: rgba(139, 92, 246, 0.4);

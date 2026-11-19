@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { contactApi } from '../api/contactApi';
 import { userApi } from '../api/userApi';
+import { getApiErrorMessage } from '../api/axiosClient';
 import { Contact, ContactRequest } from '../types/contact';
 import { PublicUser } from '../types/user';
 import { Avatar } from './Avatar';
@@ -27,8 +28,8 @@ interface ContactsPanelProps {
   onPendingCountChange: (count: number) => void;
 }
 
-const errorMessage = (err: any, fallback: string): string =>
-  err?.response?.data?.message || fallback;
+const errorMessage = (err: unknown, fallback: string): string =>
+  getApiErrorMessage(err, fallback);
 
 /** Shows a compact form of a 24-hex User ID without altering the real value. */
 const shortenUserId = (id: string): string =>

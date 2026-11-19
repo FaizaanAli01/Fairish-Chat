@@ -20,8 +20,12 @@ public class CustomUserDetailsService implements UserDetailsService {
     @Override
     @Transactional(readOnly = true)
     public UserDetails loadUserByUsername(String usernameOrEmail) throws UsernameNotFoundException {
-        User user = userRepository.findByEmailIgnoreCase(usernameOrEmail)
-                .or(() -> userRepository.findByUsernameIgnoreCase(usernameOrEmail))
+        // JWT subjects are usernames (see JwtService.generateToken), so resolve
+        // that first: the common authenticated request now needs one lookup
+        // instead of a guaranteed email miss followed by a username hit.
+        // Email lookup is retained unchanged for username-or-email login.
+        User user = userRepository.findByUsernameIgnoreCase(usernameOrEmail)
+                .or(() -> userRepository.findByEmailIgnoreCase(usernameOrEmail))
                 .orElseThrow(() -> new UsernameNotFoundException(
                         "User not found with username or email: " + usernameOrEmail));
 

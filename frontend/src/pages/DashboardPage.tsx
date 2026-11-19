@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { conversationApi } from '../api/conversationApi';
 import { messageApi } from '../api/messageApi';
 import { websocketService } from '../api/websocketService';
+import { getApiErrorMessage } from '../api/axiosClient';
 import { Conversation, UnreadCountUpdate } from '../types/conversation';
 import {
   Message,
@@ -62,6 +63,10 @@ export const DashboardPage: React.FC = () => {
   // a ref avoids re-rendering for every incoming message.
   const pendingDeliveryAcksRef = useRef<Map<string, Set<string>>>(new Map());
   const deliveryTimerRef = useRef<number | null>(null);
+  // The first STOMP connection happens on every page load. Conversations are
+  // already fetched by the mount effect, so reconciliation would duplicate that
+  // request on a cold backend. Only real reconnects need to reconcile.
+  const hasConnectedOnceRef = useRef(false);
 
   // The conversation list drives topic subscriptions, so a conversation that
   // is not in state yet cannot receive real-time messages. Remember the latest
@@ -320,7 +325,7 @@ export const DashboardPage: React.FC = () => {
       return data;
     } catch (err: any) {
       console.error('Failed to load conversations:', err);
-      setError(err.response?.data?.message || 'Failed to load conversations. Please try again.');
+      setError(getApiErrorMessage(err, 'Failed to load conversations. Please try again.'));
       return null;
     } finally {
       setIsLoadingConversations(false);
@@ -452,7 +457,7 @@ export const DashboardPage: React.FC = () => {
       setTimeout(() => scrollToBottom('auto'), 50);
     } catch (err: any) {
       console.error('Failed to load messages:', err);
-      setError(err.response?.data?.message || 'Failed to load messages. Please try again.');
+      setError(getApiErrorMessage(err, 'Failed to load messages. Please try again.'));
     } finally {
       setIsLoadingMessages(false);
     }
@@ -498,6 +503,10 @@ export const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     return websocketService.onConnect(() => {
+      if (!hasConnectedOnceRef.current) {
+        hasConnectedOnceRef.current = true;
+        return;
+      }
       void reconcileAfterReconnect();
     });
   }, [reconcileAfterReconnect]);
@@ -533,7 +542,7 @@ export const DashboardPage: React.FC = () => {
       loadConversationMessages(enriched.id);
     } catch (err: any) {
       console.error('Failed to start conversation:', err);
-      setError(err.response?.data?.message || 'Failed to start conversation. Please try again.');
+      setError(getApiErrorMessage(err, 'Failed to start conversation. Please try again.'));
     }
   };
 
@@ -562,7 +571,7 @@ export const DashboardPage: React.FC = () => {
       }, 50);
     } catch (err: any) {
       console.error('Failed to load older messages:', err);
-      setError(err.response?.data?.message || 'Failed to load older messages.');
+      setError(getApiErrorMessage(err, 'Failed to load older messages.'));
     } finally {
       setIsLoadingOlder(false);
     }
@@ -624,7 +633,7 @@ export const DashboardPage: React.FC = () => {
       }
     } catch (err: any) {
       console.error('Failed to send message:', err);
-      setError(err.response?.data?.message || 'Failed to send message. Please try again.');
+      setError(getApiErrorMessage(err, 'Failed to send message. Please try again.'));
       setMessageInput(contentToSend);
     } finally {
       setIsSending(false);
