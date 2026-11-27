@@ -2,7 +2,6 @@ package com.fairish.chat.controller;
 
 import com.fairish.chat.security.CustomUserDetailsService;
 import com.fairish.chat.security.JwtAuthenticationEntryPoint;
-import com.fairish.chat.security.JwtAuthenticationFilter;
 import com.fairish.chat.security.JwtService;
 import com.fairish.chat.security.ClientIpResolver;
 import com.fairish.chat.security.RateLimiterService;
@@ -14,11 +13,14 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
-import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(HealthController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -41,12 +43,31 @@ class HealthControllerTest {
     private JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
 
     @Test
-    @DisplayName("GET /api/health should return UP status")
-    void shouldReturnUpStatus() throws Exception {
-        mockMvc.perform(get("/api/health")
-                        .contentType(MediaType.APPLICATION_JSON))
+    @DisplayName("GET /api/health should return 200 OK with plain OK body")
+    void shouldReturnOkStatus() throws Exception {
+        mockMvc.perform(get("/api/health"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("UP"));
+                .andExpect(content().string("OK"));
+    }
+
+    @Test
+    @DisplayName("POST /api/health should be rejected with 405 Method Not Allowed")
+    void shouldRejectPostOnHealth() throws Exception {
+        mockMvc.perform(post("/api/health"))
+                .andExpect(status().isMethodNotAllowed());
+    }
+
+    @Test
+    @DisplayName("PUT /api/health should be rejected with 405 Method Not Allowed")
+    void shouldRejectPutOnHealth() throws Exception {
+        mockMvc.perform(put("/api/health"))
+                .andExpect(status().isMethodNotAllowed());
+    }
+
+    @Test
+    @DisplayName("DELETE /api/health should be rejected with 405 Method Not Allowed")
+    void shouldRejectDeleteOnHealth() throws Exception {
+        mockMvc.perform(delete("/api/health"))
+                .andExpect(status().isMethodNotAllowed());
     }
 }
-

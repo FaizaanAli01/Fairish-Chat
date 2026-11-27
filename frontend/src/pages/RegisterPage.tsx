@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { MessageSquare, Lock, Mail, User, ArrowRight, ShieldCheck, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -18,6 +18,17 @@ export const RegisterPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [coldStartMessage, setColdStartMessage] = useState<string | null>(null);
+  const coldStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (coldStartTimerRef.current) {
+        clearTimeout(coldStartTimerRef.current);
+        coldStartTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,6 +59,14 @@ export const RegisterPage: React.FC = () => {
     }
 
     setIsSubmitting(true);
+    setColdStartMessage(null);
+    if (coldStartTimerRef.current) {
+      clearTimeout(coldStartTimerRef.current);
+    }
+    coldStartTimerRef.current = setTimeout(() => {
+      setColdStartMessage('Waking up server (takes ~30s on first load)...');
+    }, 4000);
+
     try {
       await register({
         username: username.trim(),
@@ -64,6 +83,11 @@ export const RegisterPage: React.FC = () => {
         setErrorMsg('Registration failed. Please check your information and try again.');
       }
     } finally {
+      if (coldStartTimerRef.current) {
+        clearTimeout(coldStartTimerRef.current);
+        coldStartTimerRef.current = null;
+      }
+      setColdStartMessage(null);
       setIsSubmitting(false);
     }
   };
@@ -193,6 +217,12 @@ export const RegisterPage: React.FC = () => {
                 </>
               )}
             </button>
+
+            {coldStartMessage && (
+              <p className="text-center text-xs text-violet-lavender animate-pulse pt-1">
+                {coldStartMessage}
+              </p>
+            )}
           </form>
 
           <div className="pt-4 border-t border-dark-border text-center">

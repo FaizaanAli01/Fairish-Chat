@@ -26,6 +26,8 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -58,10 +60,16 @@ class SecurityIntegrationTest {
     @Test
     @DisplayName("Public endpoint /api/health should be accessible without token")
     void healthEndpointShouldBePublic() throws Exception {
-        mockMvc.perform(get("/api/health")
-                        .contentType(MediaType.APPLICATION_JSON))
+        mockMvc.perform(get("/api/health"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("UP"));
+                .andExpect(content().string("OK"));
+    }
+
+    @Test
+    @DisplayName("Non-GET requests to /api/health should be rejected without auth")
+    void nonGetHealthShouldBeRejectedWithoutAuth() throws Exception {
+        mockMvc.perform(post("/api/health"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

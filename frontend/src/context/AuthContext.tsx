@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { User, UpdateProfilePayload } from '../types/user';
 import { LoginPayload, RegisterPayload } from '../types/auth';
 import { authApi } from '../api/authApi';
@@ -12,6 +12,7 @@ interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  serverStatusMessage: string | null;
   login: (data: LoginPayload) => Promise<void>;
   register: (data: RegisterPayload) => Promise<void>;
   logout: () => Promise<void>;
@@ -75,6 +76,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [token, setToken] = useState<string | null>(readStoredToken);
   const [user, setUser] = useState<User | null>(() => (readStoredToken() ? readStoredUser() : null));
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [serverStatusMessage, setServerStatusMessage] = useState<string | null>(null);
+  const sessionCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearSession = () => {
     try {
@@ -88,6 +91,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const refreshUser = async () => {
+    if (sessionCheckTimerRef.current) {
+      clearTimeout(sessionCheckTimerRef.current);
+    }
+    sessionCheckTimerRef.current = setTimeout(() => {
+      setServerStatusMessage('Waking up server (takes ~30s on first load)...');
+    }, 4000);
+
     try {
       const currentUser = await userApi.getCurrentUser();
       setUser(currentUser);
@@ -100,6 +110,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         clearSession();
       }
     } finally {
+      if (sessionCheckTimerRef.current) {
+        clearTimeout(sessionCheckTimerRef.current);
+        sessionCheckTimerRef.current = null;
+      }
+      setServerStatusMessage(null);
       setIsLoading(false);
     }
   };
@@ -143,6 +158,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     window.addEventListener('auth:unauthorized', handleUnauthorized);
     window.addEventListener('storage', handleStorage);
     return () => {
+      if (sessionCheckTimerRef.current) {
+        clearTimeout(sessionCheckTimerRef.current);
+        sessionCheckTimerRef.current = null;
+      }
       window.removeEventListener('auth:unauthorized', handleUnauthorized);
       window.removeEventListener('storage', handleStorage);
     };
@@ -198,6 +217,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         token,
         isAuthenticated: !!token && !!user,
         isLoading,
+        serverStatusMessage,
         login,
         register,
         logout,

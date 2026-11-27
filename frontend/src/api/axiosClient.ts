@@ -6,7 +6,7 @@ const USER_KEY = 'fairish_user';
 
 // A cold backend (e.g. a scaled-to-zero host waking up) can take tens of seconds.
 // Requests must still finish or fail visibly instead of spinning forever.
-const REQUEST_TIMEOUT_MS = 20_000;
+const REQUEST_TIMEOUT_MS = 65_000;
 const RETRY_DELAY_MS = 500;
 const RETRYABLE_STATUSES = new Set([502, 503, 504]);
 

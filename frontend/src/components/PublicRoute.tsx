@@ -4,12 +4,17 @@ import { useAuth } from '../context/AuthContext';
 import { LoadingSpinner } from './LoadingSpinner';
 
 export const PublicRoute: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, serverStatusMessage } = useAuth();
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-dark-bg p-4 space-y-2">
         <LoadingSpinner size="lg" />
+        {serverStatusMessage && (
+          <p className="text-center text-xs text-violet-lavender animate-pulse">
+            {serverStatusMessage}
+          </p>
+        )}
       </div>
     );
   }
@@ -20,4 +25,3 @@ export const PublicRoute: React.FC = () => {
 
   return <Outlet />;
 };
-

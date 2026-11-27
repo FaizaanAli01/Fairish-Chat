@@ -8,6 +8,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.multipart.MultipartException;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -112,5 +113,22 @@ class GlobalExceptionHandlerTest {
         assertEquals("60", response.getHeaders().getFirst("Retry-After"));
         assertNotNull(response.getBody());
         assertEquals(429, response.getBody().getStatus());
+    }
+
+    @Test
+    @DisplayName("handleMethodNotSupported should return 405 Method Not Allowed")
+    void testMethodNotSupported() {
+        HttpRequestMethodNotSupportedException ex =
+                new HttpRequestMethodNotSupportedException("POST");
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/health");
+
+        ResponseEntity<ErrorResponse> response =
+                handler.handleMethodNotSupported(ex, request);
+
+        assertEquals(HttpStatus.METHOD_NOT_ALLOWED, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertEquals(405, response.getBody().getStatus());
+        assertEquals("Method Not Allowed", response.getBody().getError());
+        assertTrue(response.getBody().getMessage().contains("POST"));
     }
 }

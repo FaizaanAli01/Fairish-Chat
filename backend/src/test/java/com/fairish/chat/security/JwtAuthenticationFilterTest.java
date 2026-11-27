@@ -109,6 +109,20 @@ class JwtAuthenticationFilterTest {
         verifyNoInteractions(jwtService, userDetailsService, tokenBlacklistService);
     }
 
+    @Test
+    @DisplayName("Should cleanly skip filter execution for GET /api/health")
+    void shouldSkipFilterForGetHealth() throws ServletException, IOException {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/health");
+        request.setServletPath("/api/health");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, filterChain);
+
+        verify(filterChain).doFilter(request, response);
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+        verifyNoInteractions(jwtService, userDetailsService, tokenBlacklistService);
+    }
+
     private MockHttpServletRequest requestWithToken(String token) {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/users/me");
         request.addHeader("Authorization", "Bearer " + token);
